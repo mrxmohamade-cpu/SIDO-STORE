@@ -90,13 +90,13 @@ const CATEGORY_META = {
 const DEFAULT_PRODUCT_CATEGORIES = ['\u0631\u062c\u0627\u0644', '\u0646\u0633\u0627\u0621', '\u0623\u062d\u0630\u064a\u0629', '\u0625\u0643\u0633\u0633\u0648\u0627\u0631\u0627\u062a', '\u0623\u062e\u0631\u0649'];
 
 const ORDER_STATUSES = [
-  { key: 'pending', label: '?? ?????? ?????', className: 'bg-amber-100 text-amber-700 border-amber-200' },
-  { key: 'confirmed', label: '?? ???????', className: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-  { key: 'processing', label: '??? ????????', className: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-  { key: 'shipped', label: '?? ?????', className: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { key: 'out_for_delivery', label: '?? ???????', className: 'bg-violet-100 text-violet-700 border-violet-200' },
-  { key: 'delivered', label: '?? ???????', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  { key: 'cancelled', label: '????', className: 'bg-rose-100 text-rose-700 border-rose-200' },
+  { key: 'pending', label: '\u062a\u0645 \u0627\u0633\u062a\u0644\u0627\u0645 \u0627\u0644\u0637\u0644\u0628', className: 'bg-amber-100 text-amber-700 border-amber-200' },
+  { key: 'confirmed', label: '\u062a\u0645 \u0627\u0644\u062a\u0623\u0643\u064a\u062f', className: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+  { key: 'processing', label: '\u0642\u064a\u062f \u0627\u0644\u0645\u0639\u0627\u0644\u062c\u0629', className: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+  { key: 'shipped', label: '\u062a\u0645 \u0627\u0644\u0634\u062d\u0646', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  { key: 'out_for_delivery', label: '\u0641\u064a \u0627\u0644\u062a\u0648\u0635\u064a\u0644', className: 'bg-violet-100 text-violet-700 border-violet-200' },
+  { key: 'delivered', label: '\u062a\u0645 \u0627\u0644\u062a\u0633\u0644\u064a\u0645', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  { key: 'cancelled', label: '\u0645\u0644\u063a\u064a', className: 'bg-rose-100 text-rose-700 border-rose-200' },
 ];
 
 const STORAGE_KEYS = {

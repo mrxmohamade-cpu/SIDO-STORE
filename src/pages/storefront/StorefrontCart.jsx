@@ -165,7 +165,7 @@ const StorefrontCart = ({
                       whileTap={{ scale: 0.97 }}
                       className="shop-btn-primary px-4 py-2.5 rounded-xl text-xs"
                     >
-                      ?????
+                      {'\u062a\u0637\u0628\u064a\u0642'}
                     </Motion.button>
                   </div>
 
@@ -213,7 +213,7 @@ const StorefrontCart = ({
                 }}
                 className="w-full rounded-2xl bg-slate-900 text-white font-black py-4 shadow-[0_18px_35px_rgba(15,23,42,0.3)] hover:bg-emerald-500 transition flex justify-center items-center gap-2"
               >
-                ????? ????? <ChevronRight size={18} />
+                {'\u0625\u062a\u0645\u0627\u0645 \u0627\u0644\u0637\u0644\u0628'} <ChevronRight size={18} />
               </Motion.button>
             </div>
           </div>
