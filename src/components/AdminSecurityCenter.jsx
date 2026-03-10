@@ -15,6 +15,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import {
+  exportSecurityView,
   fetchBlockedIps,
   fetchSecurityBundle,
   performSecurityAction,
@@ -99,8 +100,11 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
   const [eventsSearch, setEventsSearch] = useState('');
   const [alertsSearch, setAlertsSearch] = useState('');
   const [eventsSeverityFilter, setEventsSeverityFilter] = useState('all');
+  const [eventsSourceFilter, setEventsSourceFilter] = useState('all');
   const [alertsSeverityFilter, setAlertsSeverityFilter] = useState('all');
+  const [alertsStatusFilter, setAlertsStatusFilter] = useState('all');
   const [draftSettings, setDraftSettings] = useState(DEFAULT_SETTINGS);
+  const [isExporting, setIsExporting] = useState('');
 
   const metrics = bundle?.overview?.metrics || {};
   const trends = bundle?.overview?.trends || {};
@@ -109,6 +113,8 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
   const securityAlerts = useMemo(() => (Array.isArray(bundle?.alerts) ? bundle.alerts : []), [bundle?.alerts]);
   const auditLogs = Array.isArray(bundle?.audit) ? bundle.audit : [];
   const blockedIps = Array.isArray(bundle?.blockedIps) ? bundle.blockedIps : [];
+  const eventSources = useMemo(() => Array.from(new Set(securityEvents.map((entry) => String(entry.source || '').trim()).filter(Boolean))).sort(), [securityEvents]);
+  const alertStatuses = useMemo(() => Array.from(new Set(securityAlerts.map((entry) => String(entry.status || '').trim()).filter(Boolean))).sort(), [securityAlerts]);
 
   const loadBundle = useCallback(async (silent = false) => {
     try {
@@ -135,28 +141,30 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
     const query = eventsSearch.trim().toLowerCase();
     return securityEvents.filter((entry) => {
       const severityOk = eventsSeverityFilter === 'all' || entry.severity === eventsSeverityFilter;
+      const sourceOk = eventsSourceFilter === 'all' || String(entry.source || '') === eventsSourceFilter;
       const queryOk =
         !query ||
         String(entry.summary || '').toLowerCase().includes(query) ||
         String(entry.eventType || '').toLowerCase().includes(query) ||
         String(entry.ipAddress || '').toLowerCase().includes(query) ||
         String(entry.userEmail || '').toLowerCase().includes(query);
-      return severityOk && queryOk;
+      return severityOk && sourceOk && queryOk;
     });
-  }, [eventsSearch, eventsSeverityFilter, securityEvents]);
+  }, [eventsSearch, eventsSeverityFilter, eventsSourceFilter, securityEvents]);
 
   const filteredAlerts = useMemo(() => {
     const query = alertsSearch.trim().toLowerCase();
     return securityAlerts.filter((entry) => {
       const severityOk = alertsSeverityFilter === 'all' || entry.severity === alertsSeverityFilter;
+      const statusOk = alertsStatusFilter === 'all' || String(entry.status || '') === alertsStatusFilter;
       const queryOk =
         !query ||
         String(entry.summary || '').toLowerCase().includes(query) ||
         String(entry.eventType || '').toLowerCase().includes(query) ||
         String(entry.id || '').toLowerCase().includes(query);
-      return severityOk && queryOk;
+      return severityOk && statusOk && queryOk;
     });
-  }, [alertsSearch, alertsSeverityFilter, securityAlerts]);
+  }, [alertsSearch, alertsSeverityFilter, alertsStatusFilter, securityAlerts]);
 
   const runAction = async (action, data = {}, successMessage = 'Action completed successfully') => {
     try {
@@ -168,6 +176,18 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
       showToast(String(error?.message || 'Failed to execute action.'), 'error');
     } finally {
       setIsActionBusy(false);
+    }
+  };
+
+  const handleExport = async (view, filters = {}, format = 'csv') => {
+    try {
+      setIsExporting(`${view}-${format}`);
+      await exportSecurityView(view, filters, format);
+      showToast(`Export ready: ${view} (${format.toUpperCase()})`, 'success');
+    } catch (error) {
+      showToast(String(error?.message || 'Failed to export data.'), 'error');
+    } finally {
+      setIsExporting('');
     }
   };
 
@@ -368,7 +388,7 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
 
       {activeSection === 'logs' && (
         <div className={`rounded-2xl border p-4 space-y-4 ${isDarkMode ? 'border-slate-700 bg-slate-900/80' : 'border-slate-200 bg-white'}`}>
-          <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col lg:flex-row gap-2">
             <div className={`flex-1 rounded-xl border px-3 py-2 flex items-center gap-2 ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
               <Search size={15} />
               <input value={eventsSearch} onChange={(event) => setEventsSearch(event.target.value)} placeholder="Search logs..." className="flex-1 bg-transparent outline-none text-sm font-bold" />
@@ -381,6 +401,14 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
               <option value="low">Low</option>
               <option value="info">Info</option>
             </select>
+            <select value={eventsSourceFilter} onChange={(event) => setEventsSourceFilter(event.target.value)} className={`rounded-xl border px-3 py-2 text-sm font-black ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}>
+              <option value="all">All sources</option>
+              {eventSources.map((source) => (
+                <option key={source} value={source}>{source}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => handleExport('events', { severity: eventsSeverityFilter === 'all' ? '' : eventsSeverityFilter, source: eventsSourceFilter === 'all' ? '' : eventsSourceFilter, query: eventsSearch }, 'csv')} disabled={isExporting !== ''} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'events-csv' ? 'Exporting...' : 'Export CSV'}</button>
+            <button type="button" onClick={() => handleExport('events', { severity: eventsSeverityFilter === 'all' ? '' : eventsSeverityFilter, source: eventsSourceFilter === 'all' ? '' : eventsSourceFilter, query: eventsSearch }, 'json')} disabled={isExporting !== ''} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'events-json' ? 'Exporting...' : 'Export JSON'}</button>
           </div>
 
           <div className="space-y-2 max-h-[55vh] overflow-auto">
@@ -405,7 +433,7 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
 
       {activeSection === 'alerts' && (
         <div className={`rounded-2xl border p-4 space-y-4 ${isDarkMode ? 'border-slate-700 bg-slate-900/80' : 'border-slate-200 bg-white'}`}>
-          <div className="flex flex-col md:flex-row gap-2">
+          <div className="flex flex-col lg:flex-row gap-2">
             <div className={`flex-1 rounded-xl border px-3 py-2 flex items-center gap-2 ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-200' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
               <Search size={15} />
               <input value={alertsSearch} onChange={(event) => setAlertsSearch(event.target.value)} placeholder="Search alerts..." className="flex-1 bg-transparent outline-none text-sm font-bold" />
@@ -417,6 +445,14 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
               <option value="medium">Medium</option>
               <option value="low">Low</option>
             </select>
+            <select value={alertsStatusFilter} onChange={(event) => setAlertsStatusFilter(event.target.value)} className={`rounded-xl border px-3 py-2 text-sm font-black ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}>
+              <option value="all">All statuses</option>
+              {alertStatuses.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => handleExport('alerts', { severity: alertsSeverityFilter === 'all' ? '' : alertsSeverityFilter, status: alertsStatusFilter === 'all' ? '' : alertsStatusFilter, query: alertsSearch }, 'csv')} disabled={isExporting !== ''} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'alerts-csv' ? 'Exporting...' : 'Export CSV'}</button>
+            <button type="button" onClick={() => handleExport('alerts', { severity: alertsSeverityFilter === 'all' ? '' : alertsSeverityFilter, status: alertsStatusFilter === 'all' ? '' : alertsStatusFilter, query: alertsSearch }, 'json')} disabled={isExporting !== ''} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'alerts-json' ? 'Exporting...' : 'Export JSON'}</button>
           </div>
 
           <div className="space-y-2 max-h-[55vh] overflow-auto">
@@ -497,6 +533,10 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
 
       {activeSection === 'audit' && (
         <div className={`rounded-2xl border p-4 ${isDarkMode ? 'border-slate-700 bg-slate-900/80' : 'border-slate-200 bg-white'}`}>
+          <div className="mb-3 flex flex-wrap gap-2 justify-end">
+            <button type="button" onClick={() => handleExport('audit', {}, 'csv')} disabled={isExporting !== ''} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'audit-csv' ? 'Exporting...' : 'Export Audit CSV'}</button>
+            <button type="button" onClick={() => handleExport('audit', {}, 'json')} disabled={isExporting !== ''} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60">{isExporting === 'audit-json' ? 'Exporting...' : 'Export Audit JSON'}</button>
+          </div>
           <div className="space-y-2 max-h-[60vh] overflow-auto">
             {auditLogs.length === 0 ? (
               <p className={`text-sm font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>No audit entries yet.</p>

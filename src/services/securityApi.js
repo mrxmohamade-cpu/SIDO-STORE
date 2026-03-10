@@ -151,6 +151,52 @@ const trackClientSecurityEvent = async (eventType, payload = {}) => {
   }
 };
 
+const exportSecurityView = async (view, filters = {}, format = 'csv') => {
+  const token = await getAdminToken();
+  const query = buildQueryString({ view, export: format, ...filters });
+
+  let response;
+  try {
+    response = await fetch(`/api/security-center${query}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new Error('Unable to connect to API service.');
+  }
+
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!response.ok) {
+    const payload = await parseResponseBody(response);
+    throw new Error(resolveApiError(`/api/security-center${query}`, response, payload));
+  }
+
+  let blob;
+  let extension = format === 'json' ? 'json' : 'csv';
+
+  if (contentType.includes('application/json')) {
+    const payload = await response.json().catch(() => ({}));
+    const data = payload?.data ?? payload;
+    blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+    extension = 'json';
+  } else {
+    blob = await response.blob();
+  }
+
+  const url = window.URL.createObjectURL(blob);
+  const downloadName = `security-${view}-${new Date().toISOString().slice(0, 10)}.${extension}`;
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = downloadName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+
+  return { ok: true, downloadName };
+};
 const fetchPublicSecurityStatus = async () => {
   const fallback = {
     loginEnabled: true,
@@ -179,6 +225,7 @@ const fetchPublicSecurityStatus = async () => {
 };
 
 export {
+  exportSecurityView,
   fetchBlockedIps,
   fetchPublicSecurityStatus,
   fetchSecurityAlerts,

@@ -648,6 +648,50 @@ const MaintenanceView = ({ siteName, onOpenAdmin }) => (
   </div>
 );
 
+const BlockedAccessView = ({ siteName, blockedUntil, blockedReason, onRefresh }) => {
+  const blockedUntilLabel = blockedUntil
+    ? new Date(blockedUntil).toLocaleString('ar-DZ')
+    : '';
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950/80 flex flex-col items-center justify-center p-4 text-center text-white">
+      <Motion.div
+        initial={{ scale: 0.96, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={PAGE_TRANSITION}
+        className="relative overflow-hidden bg-white/10 backdrop-blur-2xl p-8 md:p-10 rounded-[2.5rem] shadow-2xl border border-white/20 max-w-xl w-full"
+      >
+        <div className="absolute -top-16 -left-8 h-40 w-40 rounded-full bg-rose-400/20 blur-3xl" />
+        <div className="absolute -bottom-16 -right-8 h-40 w-40 rounded-full bg-amber-300/20 blur-3xl" />
+
+        <div className="relative z-10">
+          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border border-rose-200/30 bg-rose-400/15 text-rose-200">
+            <ShieldCheck size={42} />
+          </div>
+          <h2 className="text-3xl md:text-4xl font-black mb-3">تم تقييد الوصول مؤقتًا</h2>
+          <p className="text-base md:text-lg font-bold text-slate-200 mb-3">رصد نظام الحماية نشاطًا غير طبيعي من هذا الجهاز، لذلك تم إيقاف الوصول مؤقتًا إلى {siteName || 'المتجر'}.</p>
+          <div className="space-y-2 rounded-3xl border border-white/15 bg-white/10 px-5 py-4 text-sm font-bold text-slate-100">
+            <p>{blockedUntilLabel ? 'يمكنك المحاولة مجددًا بعد ' + blockedUntilLabel : 'يمكنك المحاولة لاحقًا أو انتظار مراجعة المسؤول.'}</p>
+            {blockedReason ? <p className="text-rose-100/90">السبب: {blockedReason}</p> : null}
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-black text-slate-900 transition hover:bg-slate-100"
+            >
+              <RefreshCw size={18} /> تحديث الحالة
+            </button>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-3 text-sm font-bold text-slate-100">
+              <AlertTriangle size={16} /> إذا كنت المالك، افتح لوحة الإدارة من جهاز أو عنوان IP غير محظور لفك الحظر.
+            </span>
+          </div>
+        </div>
+      </Motion.div>
+    </div>
+  );
+};
 const OrderStatusPill = ({ status }) => {
   const meta = getOrderStatusMeta(status);
   return <span className={`text-xs font-black px-3 py-1 rounded-full border ${meta.className}`}>{meta.label}</span>;
@@ -2101,8 +2145,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentRoute !== ROUTES.admin) return undefined;
-
     let active = true;
     const loadStatus = async () => {
       try {
@@ -2131,7 +2173,7 @@ export default function App() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [currentRoute]);
+  }, [isAdminAuth]);
 
   useEffect(() => {
     let active = true;
@@ -2521,6 +2563,19 @@ export default function App() {
     );
   }
 
+  if (securityStatus.blocked && !isAdminAuth) {
+    return (
+      <div dir="rtl" style={{ fontFamily: "'Alexandria', sans-serif" }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Alexandria:wght@400;500;600;700;800;900&display=swap');`}</style>
+        <BlockedAccessView
+          siteName={siteConfig.name}
+          blockedUntil={securityStatus.blockedUntil}
+          blockedReason={securityStatus.blockedReason}
+          onRefresh={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
   const isCheckoutOrAdmin = currentRoute === ROUTES.checkout || currentRoute === ROUTES.admin;
 
   return (

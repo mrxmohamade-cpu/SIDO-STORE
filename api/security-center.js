@@ -71,11 +71,13 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: '\u062a\u0645 \u062a\u062c\u0627\u0648\u0632 \u0627\u0644\u062d\u062f \u0627\u0644\u0645\u0633\u0645\u0648\u062d \u0628\u0647 \u0645\u0646 \u0627\u0644\u0637\u0644\u0628\u0627\u062a. \u062d\u0627\u0648\u0644 \u0644\u0627\u062d\u0642\u064b\u0627.' });
   }
 
-  if (await isIpBlocked(clientIp)) {
+  const authResult = await verifyAdminRequest(req);
+  const blockedEntry = await isIpBlocked(clientIp);
+
+  if (blockedEntry && !authResult.ok) {
     return res.status(403).json({ error: '\u062a\u0645 \u0631\u0641\u0636 \u0627\u0644\u0648\u0635\u0648\u0644.' });
   }
 
-  const authResult = await verifyAdminRequest(req);
   if (!authResult.ok) {
     await logSecurityEvent({
       eventType: 'admin_access_denied',
