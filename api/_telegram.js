@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+﻿import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 
@@ -169,6 +169,21 @@ const getTelegramErrorCode = (error) => sanitizeText(error?.code, 60).toLowerCas
 const getEncryptionSecret = () => {
   const configured = String(process.env.TELEGRAM_ENCRYPTION_SECRET || '').trim();
   if (configured) return configured;
+
+  const compatibilitySeed = [
+    String(process.env.ADMIN_ALLOWED_EMAILS || '').trim(),
+    String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim(),
+    String(process.env.VITE_FIREBASE_API_KEY || '').trim(),
+    String(process.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
+    String(process.env.VITE_ADMIN_EMAIL || '').trim(),
+    String(process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || '').trim(),
+  ]
+    .filter(Boolean)
+    .join('|');
+
+  if (compatibilitySeed) {
+    return `compat-secret:${compatibilitySeed}`;
+  }
 
   if (process.env.NODE_ENV !== 'production') {
     const projectScope = String(process.env.VITE_FIREBASE_PROJECT_ID || 'store-dz-local').trim();
@@ -751,3 +766,4 @@ export {
   testTelegramSettings,
   verifyAdminRequest,
 };
+
