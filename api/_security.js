@@ -382,7 +382,7 @@ const shouldSendTelegramForAlert = (alert, settings) => {
   return true;
 };
 
-const formatTelegramAlertMessage = (alert) => alert;
+const formatTelegramAlertMessage = () => '';
 
 const collectionRef = (db, key) => collection(db, SECURITY_COLLECTIONS[key]);
 

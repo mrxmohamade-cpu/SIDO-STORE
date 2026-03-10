@@ -276,11 +276,11 @@ export default async function handler(req, res) {
       const sendResult = await sendTelegramEventNotification({
         eventType: 'admin_action',
         message: [
-          '<b>\u2705 \u0627\u062e\u062a\u0628\u0627\u0631 \u0645\u0631\u0643\u0632 \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629</b>',
+          '<b>[TEST]</b> Test du centre de securite',
           '',
-          '\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u0645\u0648\u0642\u0639 \u0644\u0644\u062a\u0623\u0643\u062f \u0645\u0646 \u0633\u0644\u0627\u0645\u0629 \u0627\u0644\u0631\u0628\u0637.',
-          `<b>\ud83d\udc64 \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${sanitizeText(actor.email, 140) || 'admin'}`,
-          `<b>\ud83d\udd52 \u0627\u0644\u0648\u0642\u062a:</b> ${new Date().toLocaleString('ar-DZ')}`,
+          'Message envoye depuis le centre de securite pour verifier la liaison Telegram.',
+          `<b>Admin:</b> ${sanitizeText(actor.email, 140) || 'admin'}`,
+          `<b>Heure:</b> ${new Date().toLocaleString('fr-DZ')}`,
         ].join('\n'),
       });
 

@@ -429,44 +429,44 @@ const formatMoney = (value) => {
 const formatDateTime = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return sanitizeText(value, 80) || '-';
-  return date.toLocaleString('ar-DZ');
+  return date.toLocaleString('fr-DZ');
 };
 
 const toStatusLabel = (status) => {
   const normalized = sanitizeText(status, 40).toLowerCase();
   switch (normalized) {
     case 'pending':
-      return '\u0642\u064a\u062f \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629';
+      return 'En revision';
     case 'confirmed':
-      return '\u062a\u0645 \u0627\u0644\u062a\u0623\u0643\u064a\u062f';
+      return 'Confirmee';
     case 'processing':
-      return '\u0642\u064a\u062f \u0627\u0644\u062a\u062d\u0636\u064a\u0631';
+      return 'En preparation';
     case 'shipped':
-      return '\u062a\u0645 \u0627\u0644\u0634\u062d\u0646';
+      return 'Expediee';
     case 'out_for_delivery':
-      return '\u062e\u0631\u062c \u0644\u0644\u062a\u0648\u0635\u064a\u0644';
+      return 'En livraison';
     case 'delivered':
-      return '\u062a\u0645 \u0627\u0644\u062a\u0633\u0644\u064a\u0645';
+      return 'Livree';
     case 'cancelled':
-      return '\u0645\u0644\u063a\u064a';
+      return 'Annulee';
     default:
-      return sanitizeText(status, 60) || '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f\u0629';
+      return sanitizeText(status, 60) || 'Non defini';
   }
 };
 
 const formatItemsList = (items = []) => {
   if (!Array.isArray(items) || items.length === 0) {
-    return '• لا توجد منتجات مرفقة';
+    return '\u2022 Aucun article joint';
   }
 
   return items
     .slice(0, 8)
     .map((item) => {
       const qty = Number(item?.qty) || 0;
-      const name = escapeHtml(sanitizeText(item?.name, 90) || 'منتج');
+      const name = escapeHtml(sanitizeText(item?.name, 90) || 'Produit');
       const size = sanitizeText(item?.selectedSize, 30);
       const color = sanitizeText(item?.selectedColor, 30);
-      const extras = [size ? `المقاس: ${escapeHtml(size)}` : '', color ? `اللون: ${escapeHtml(color)}` : '']
+      const extras = [size ? `Taille: ${escapeHtml(size)}` : '', color ? `Couleur: ${escapeHtml(color)}` : '']
         .filter(Boolean)
         .join(' | ');
       const linePrice = Number.isFinite(Number(item?.lineTotal)) ? formatMoney(item.lineTotal) : formatMoney((Number(item?.price) || 0) * qty);
@@ -478,38 +478,38 @@ const formatItemsList = (items = []) => {
 const formatSeverityLabel = (value) => {
   switch (sanitizeText(value, 30).toLowerCase()) {
     case 'critical':
-      return 'حرج';
+      return 'Critique';
     case 'high':
-      return 'مرتفع';
+      return 'Eleve';
     case 'medium':
-      return 'متوسط';
+      return 'Moyen';
     case 'low':
-      return 'منخفض';
+      return 'Faible';
     case 'info':
-      return 'معلوماتي';
+      return 'Info';
     default:
-      return sanitizeText(value, 40) || 'غير محدد';
+      return sanitizeText(value, 40) || 'Non defini';
   }
 };
 
 const formatEventTypeLabel = (eventType) => {
   switch (sanitizeText(eventType, 80).toLowerCase()) {
     case 'new_order':
-      return 'طلب جديد';
+      return 'Nouvelle commande';
     case 'order_status_changed':
-      return 'تغيير حالة الطلب';
+      return 'Mise a jour du statut';
     case 'system_error':
-      return 'خطأ نظام';
+      return 'Erreur systeme';
     case 'security_alert':
-      return 'تنبيه أمني';
+      return 'Alerte securite';
     case 'telegram_test':
-      return 'اختبار ربط تيليجرام';
+      return 'Test Telegram';
     case 'telegram_settings_changed':
-      return 'تغيير إعدادات تيليجرام';
+      return 'Modification Telegram';
     case 'admin_action':
-      return 'إجراء إداري';
+      return 'Action admin';
     default:
-      return sanitizeText(eventType, 80) || 'إشعار إداري';
+      return sanitizeText(eventType, 80) || 'Notification admin';
   }
 };
 
@@ -519,90 +519,97 @@ const formatTelegramEventMessage = ({ eventType, payload = {}, message = '' }) =
 
   if (eventType === 'new_order') {
     return [
-      '<b>🛒 طلب جديد في المتجر</b>',
+      '<b>[COMMANDE]</b> Nouvelle commande recue',
       '',
-      `<b>👤 الزبون:</b> ${escapeHtml(sanitizeText(safePayload.customer?.name || safePayload.customerName, 120) || '-')}`,
-      `<b>📞 الهاتف:</b> ${escapeHtml(sanitizeText(safePayload.customer?.phone || safePayload.phone, 60) || '-')}`,
-      `<b>📍 الولاية:</b> ${escapeHtml(sanitizeText(safePayload.customer?.wilaya || safePayload.wilaya, 80) || '-')}`,
-      `<b>🏘 البلدية:</b> ${escapeHtml(sanitizeText(safePayload.customer?.commune || safePayload.commune, 80) || '-')}`,
-      `<b>🧾 رقم الطلب:</b> #${escapeHtml(sanitizeText(safePayload.id, 40) || '-')}`,
-      `<b>📦 المجموع الفرعي:</b> ${formatMoney(safePayload.subtotal)}`,
-      `<b>🚚 سعر التوصيل:</b> ${formatMoney(safePayload.shippingFee)}`,
-      `<b>💳 المجموع:</b> ${formatMoney(safePayload.totalPrice)}`,
-      Number(safePayload.discount) > 0 ? `<b>🏷 الخصم:</b> ${formatMoney(safePayload.discount)}` : '',
-      safePayload.couponCode ? `<b>🎟 الكوبون:</b> ${escapeHtml(sanitizeText(safePayload.couponCode, 40))}` : '',
-      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+      `<b>Client:</b> ${escapeHtml(sanitizeText(safePayload.customer?.name || safePayload.customerName, 120) || '-')}`,
+      `<b>Telephone:</b> ${escapeHtml(sanitizeText(safePayload.customer?.phone || safePayload.phone, 60) || '-')}`,
+      `<b>Wilaya:</b> ${escapeHtml(sanitizeText(safePayload.customer?.wilaya || safePayload.wilaya, 80) || '-')}`,
+      `<b>Commune:</b> ${escapeHtml(sanitizeText(safePayload.customer?.commune || safePayload.commune, 80) || '-')}`,
+      `<b>Commande:</b> #${escapeHtml(sanitizeText(safePayload.id, 40) || '-')}`,
+      `<b>Sous-total:</b> ${formatMoney(safePayload.subtotal)}`,
+      `<b>Livraison:</b> ${formatMoney(safePayload.shippingFee)}`,
+      `<b>Total:</b> ${formatMoney(safePayload.totalPrice)}`,
+      Number(safePayload.discount) > 0 ? `<b>Remise:</b> ${formatMoney(safePayload.discount)}` : '',
+      safePayload.couponCode ? `<b>Coupon:</b> ${escapeHtml(sanitizeText(safePayload.couponCode, 40))}` : '',
+      `<b>Heure:</b> ${formatDateTime()}`,
       '',
-      '<b>📦 المنتجات</b>',
+      '<b>Articles</b>',
       formatItemsList(safePayload.items),
     ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'order_status_changed') {
     return [
-      '<b>🚚 تحديث حالة طلب</b>',
+      '<b>[STATUT]</b> Mise a jour du statut de commande',
       '',
-      `<b>🧾 رقم الطلب:</b> #${escapeHtml(sanitizeText(safePayload.orderId, 40) || '-')}`,
-      `<b>🔁 الحالة السابقة:</b> ${escapeHtml(toStatusLabel(safePayload.previousStatus))}`,
-      `<b>✅ الحالة الجديدة:</b> ${escapeHtml(toStatusLabel(safePayload.nextStatus))}`,
-      safePayload.customerName ? `<b>👤 الزبون:</b> ${escapeHtml(sanitizeText(safePayload.customerName, 120))}` : '',
-      `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
-      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+      `<b>Commande:</b> #${escapeHtml(sanitizeText(safePayload.orderId, 40) || '-')}`,
+      `<b>Ancien statut:</b> ${escapeHtml(toStatusLabel(safePayload.previousStatus))}`,
+      `<b>Nouveau statut:</b> ${escapeHtml(toStatusLabel(safePayload.nextStatus))}`,
+      safePayload.customerName ? `<b>Client:</b> ${escapeHtml(sanitizeText(safePayload.customerName, 120))}` : '',
+      `<b>Par:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+      `<b>Heure:</b> ${formatDateTime()}`,
     ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'system_error') {
     return [
-      '<b>🚨 تنبيه نظام</b>',
+      '<b>[SYSTEME]</b> Alerte systeme',
       '',
-      `<b>🧩 الوحدة:</b> ${escapeHtml(sanitizeText(safePayload.module, 80) || 'system')}`,
-      `<b>⚠️ المستوى:</b> ${escapeHtml(sanitizeText(safePayload.severity, 40) || '\u0645\u0631\u062a\u0641\u0639')}`,
-      `<b>📝 الملخص:</b> ${escapeHtml(sanitizeText(safePayload.message || fallback, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062e\u0637\u0623 \u064a\u062d\u062a\u0627\u062c \u0645\u0631\u0627\u062c\u0639\u0629.')}`,
-      safePayload.suggestedAction ? `<b>🛠 الإجراء المقترح:</b> ${escapeHtml(sanitizeText(safePayload.suggestedAction, 160))}` : '',
-      `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'system')}`,
-      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+      `<b>Module:</b> ${escapeHtml(sanitizeText(safePayload.module, 80) || 'system')}`,
+      `<b>Niveau:</b> ${escapeHtml(formatSeverityLabel(safePayload.severity || 'high'))}`,
+      `<b>Resume:</b> ${escapeHtml(sanitizeText(safePayload.message || fallback, 240) || 'Une erreur necessite une verification.')}`,
+      safePayload.suggestedAction ? `<b>Action conseillee:</b> ${escapeHtml(sanitizeText(safePayload.suggestedAction, 160))}` : '',
+      `<b>Par:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'system')}`,
+      `<b>Heure:</b> ${formatDateTime()}`,
     ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'security_alert') {
+    const metadata = safePayload.metadata && typeof safePayload.metadata === 'object' ? safePayload.metadata : {};
     return [
-      '<b>🛡️ مركز التنبيهات الأمنية</b>',
+      '<b>[SECURITE]</b> Centre de surveillance',
       '',
-      `<b>📌 نوع الحدث:</b> ${escapeHtml(formatEventTypeLabel(safePayload.eventType))}`,
-      `<b>⚠️ مستوى الخطورة:</b> ${escapeHtml(formatSeverityLabel(safePayload.severity))}`,
-      `<b>🆔 رقم التنبيه:</b> ${escapeHtml(sanitizeText(safePayload.id, 80) || '-')}`,
-      `<b>🔗 المصدر:</b> ${escapeHtml(sanitizeText(safePayload.source, 80) || 'security_center')}`,
-      `<b>🌐 عنوان IP:</b> ${escapeHtml(sanitizeText(safePayload.ipAddress, 80) || '\u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641')}`,
-      safePayload.userEmail ? `<b>👤 المستخدم:</b> ${escapeHtml(sanitizeText(safePayload.userEmail, 140))}` : '',
-      safePayload.endpoint ? `<b>📍 المسار:</b> ${escapeHtml(sanitizeText(safePayload.endpoint, 160))}` : '',
-      `<b>📝 الملخص:</b> ${escapeHtml(sanitizeText(safePayload.summary, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062a\u0646\u0628\u064a\u0647 \u0623\u0645\u0646\u064a \u064a\u062d\u062a\u0627\u062c \u0625\u0644\u0649 \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629.') }`,
-      `<b>🎯 درجة المخاطر:</b> ${Number(safePayload.riskScore) || 0}/100`,
-      `<b>🕒 الوقت:</b> ${formatDateTime(safePayload.createdAt || new Date())}`,
+      `<b>Type d evenement:</b> ${escapeHtml(formatEventTypeLabel(safePayload.eventType || eventType))}`,
+      `<b>Gravite:</b> ${escapeHtml(formatSeverityLabel(safePayload.severity))}`,
+      `<b>Alerte:</b> ${escapeHtml(sanitizeText(safePayload.id, 80) || '-')}`,
+      `<b>Source:</b> ${escapeHtml(sanitizeText(safePayload.source, 80) || 'security_center')}`,
+      `<b>Adresse IP:</b> ${escapeHtml(sanitizeText(safePayload.ipAddress, 80) || 'Inconnue')}`,
+      safePayload.userEmail ? `<b>Utilisateur:</b> ${escapeHtml(sanitizeText(safePayload.userEmail, 140))}` : '',
+      metadata.email ? `<b>Email cible:</b> ${escapeHtml(sanitizeText(metadata.email, 140))}` : '',
+      safePayload.endpoint ? `<b>Endpoint:</b> ${escapeHtml(sanitizeText(safePayload.endpoint, 160))}` : '',
+      metadata.page ? `<b>Page:</b> ${escapeHtml(sanitizeText(metadata.page, 120))}` : '',
+      `<b>Resume:</b> ${escapeHtml(sanitizeText(safePayload.summary, 240) || 'Une activite necessite une verification.')}`,
+      safePayload.reason ? `<b>Motif:</b> ${escapeHtml(sanitizeText(safePayload.reason, 120))}` : '',
+      `<b>Score de risque:</b> ${Number(safePayload.riskScore) || 0}/100`,
+      metadata.attempts || metadata.attempts === 0 ? `<b>Tentatives:</b> ${Number(metadata.attempts) || 0}` : '',
+      metadata.reason ? `<b>Detail technique:</b> ${escapeHtml(sanitizeText(metadata.reason, 120))}` : '',
+      metadata.status ? `<b>Etat:</b> ${escapeHtml(sanitizeText(metadata.status, 80))}` : '',
+      `<b>Heure:</b> ${formatDateTime(safePayload.createdAt || new Date())}`,
       '',
-      '<b>🛠️ الإجراء المقترح:</b> راجع السجلات ولوحة المراقبة ثم فعل الإجراء المناسب عند الحاجة.',
+      '<b>Action conseillee:</b> Verifiez les journaux, confirmez l origine de l activite et appliquez une mesure si necessaire.',
     ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'telegram_test') {
     return [
-      '<b>✅ اختبار ربط تيليجرام</b>',
+      '<b>[TEST]</b> Test de liaison Telegram',
       '',
-      'تم إرسال هذه الرسالة للتأكد من أن الربط يعمل بشكل صحيح.',
-      `<b>💬 Chat ID:</b> ${escapeHtml(sanitizeText(safePayload.chatId, 40) || '-')}`,
-      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+      'Ce message confirme que la liaison Telegram fonctionne correctement.',
+      `<b>Chat ID:</b> ${escapeHtml(sanitizeText(safePayload.chatId, 40) || '-')}`,
+      `<b>Heure:</b> ${formatDateTime()}`,
     ].join('\n');
   }
 
   return [
-    '<b>🛠 إشعار إداري</b>',
+    '<b>[ADMIN]</b> Notification administrative',
     '',
-    `<b>📌 نوع الإشعار:</b> ${escapeHtml(formatEventTypeLabel(eventType))}`,
-    `<b>📌 الإجراء:</b> ${escapeHtml(sanitizeText(safePayload.action, 100) || sanitizeText(eventType, 80) || 'admin_action')}`,
-    safePayload.entity ? `<b>📁 القسم:</b> ${escapeHtml(sanitizeText(safePayload.entity, 100))}` : '',
-    safePayload.entityId ? `<b>🆔 المعرف:</b> ${escapeHtml(sanitizeText(safePayload.entityId, 80))}` : '',
-    safePayload.label ? `<b>📝 التفاصيل:</b> ${escapeHtml(sanitizeText(safePayload.label, 180))}` : '',
-    `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
-    `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+    `<b>Type:</b> ${escapeHtml(formatEventTypeLabel(eventType))}`,
+    `<b>Action:</b> ${escapeHtml(sanitizeText(safePayload.action, 100) || sanitizeText(eventType, 80) || 'admin_action')}`,
+    safePayload.entity ? `<b>Section:</b> ${escapeHtml(sanitizeText(safePayload.entity, 100))}` : '',
+    safePayload.entityId ? `<b>Identifiant:</b> ${escapeHtml(sanitizeText(safePayload.entityId, 80))}` : '',
+    safePayload.label ? `<b>Details:</b> ${escapeHtml(sanitizeText(safePayload.label, 180))}` : '',
+    `<b>Par:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+    `<b>Heure:</b> ${formatDateTime()}`,
   ].filter(Boolean).join('\n');
 };
 
