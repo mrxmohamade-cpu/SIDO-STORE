@@ -184,7 +184,7 @@ const AdminCMS = ({
   const [wilayaShippingError, setWilayaShippingError] = useState('');
   const isDarkMode = adminTheme === 'dark';
 
-  const formatMoney = (value) => new Intl.NumberFormat('fr-DZ').format(Number(value) || 0) + ' ?.?';
+  const formatMoney = (value) => new Intl.NumberFormat('fr-DZ').format(Number(value) || 0) + ' \u062f.\u062c';
   const formatOrderDate = (value) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '\u062a\u0627\u0631\u064a\u062e \u063a\u064a\u0631 \u0635\u0627\u0644\u062d';
@@ -1527,7 +1527,7 @@ const AdminCMS = ({
                     <CreditCard size={20} />
                   </div>
                   <p className="text-sm font-bold text-gray-500 mb-1">{'\u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a'}</p>
-                  <p className="text-xl font-black text-emerald-600">{revenue} ?.?</p>
+                  <p className="text-xl font-black text-emerald-600">{formatMoney(revenue)}</p>
                 </div>
 
                 <div className="bg-slate-50 p-5 rounded-3xl border border-gray-100">
@@ -1653,9 +1653,9 @@ const AdminCMS = ({
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
                           <p className="font-black text-slate-900 text-lg">{order.customer.name}</p>
-                          <p className="text-sm text-gray-500 font-bold">{order.customer.wilaya_name || order.customer.wilaya} ? {order.customer.commune_name || order.customer.commune || order.customer.city}</p>
+                          <p className="text-sm text-gray-500 font-bold">{order.customer.wilaya_name || order.customer.wilaya} - {order.customer.commune_name || order.customer.commune || order.customer.city}</p>
                           <p className="text-sm text-gray-500 font-bold">{order.customer.phone}</p>
-                          <p className="text-xs text-gray-400 mt-1">#{String(order.id).slice(-6)} ? {formatOrderDate(order.date)}</p>
+                          <p className="text-xs text-gray-400 mt-1">#{String(order.id).slice(-6)} - {formatOrderDate(order.date)}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <select
@@ -2055,7 +2055,7 @@ const AdminCMS = ({
                           <p className="font-bold text-sm truncate mb-1">{product.name}</p>
                           <p className="text-[11px] font-black text-slate-500 mb-1">{product.category}</p>
                           {product.description && <p className="text-[11px] font-bold text-slate-500 line-clamp-2 mb-2">{product.description}</p>}
-                          <p className="font-black text-emerald-600 mb-1">{product.price} ?.?</p>
+                          <p className="font-black text-emerald-600 mb-1">{formatMoney(product.price)}</p>
                           <p
                             className={`text-xs font-black mb-4 ${
                               stock === 0 ? 'text-red-600' : stock <= 3 ? 'text-orange-600' : 'text-gray-500'
@@ -2453,7 +2453,7 @@ const AdminCMS = ({
                                     placeholder="0"
                                     className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pr-3 pl-12 text-sm font-black text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                                   />
-                                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-500">?.?</span>
+                                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-500">\u062f.\u062c</span>
                                 </div>
                               </div>
                             );

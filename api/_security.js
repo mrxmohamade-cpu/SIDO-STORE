@@ -382,32 +382,7 @@ const shouldSendTelegramForAlert = (alert, settings) => {
   return true;
 };
 
-const formatTelegramAlertMessage = (alert) => {
-  const metadata = alert.metadata && typeof alert.metadata === 'object' ? alert.metadata : {};
-  const ua = sanitizeText(metadata.userAgent || metadata.device, 140);
-  const location = sanitizeText(metadata.location || '', 80) || 'Unknown';
-
-  return [
-    '<b>SECURITY ALERT CENTER</b>',
-    '',
-    `<b>Severity:</b> ${alert.severity.toUpperCase()}`,
-    `<b>Event:</b> ${sanitizeText(alert.eventType, 80)}`,
-    `<b>Alert ID:</b> ${sanitizeText(alert.id, 80)}`,
-    `<b>Time:</b> ${sanitizeText(alert.createdAt, 40)}`,
-    `<b>Source:</b> ${sanitizeText(alert.source, 60) || 'system'}`,
-    `<b>IP:</b> ${sanitizeText(alert.ipAddress, 70) || 'unknown'}`,
-    `<b>Location:</b> ${location}`,
-    ua ? `<b>Device:</b> ${ua}` : '',
-    alert.userEmail ? `<b>User:</b> ${sanitizeText(alert.userEmail, 120)}` : '',
-    alert.endpoint ? `<b>Endpoint:</b> ${sanitizeText(alert.endpoint, 120)}` : '',
-    `<b>Risk Score:</b> ${Number(alert.riskScore) || 0}/100`,
-    `<b>Summary:</b> ${sanitizeText(alert.summary, 220)}`,
-    '',
-    '<b>Suggested Action:</b> Review logs and apply incident controls if needed.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-};
+const formatTelegramAlertMessage = (alert) => alert;
 
 const collectionRef = (db, key) => collection(db, SECURITY_COLLECTIONS[key]);
 
@@ -664,8 +639,9 @@ const logSecurityEvent = async (input = {}) => {
   let notified = false;
   if (alert && shouldSendTelegramForAlert(alert, settings)) {
     const sendResult = await sendTelegramEventNotification({
-      eventType: 'system_error',
+      eventType: 'security_alert',
       message: formatTelegramAlertMessage(alert),
+      payload: alert,
     });
     notified = Boolean(sendResult?.ok && sendResult?.delivered);
 

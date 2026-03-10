@@ -115,12 +115,12 @@ const extractBearerToken = (authorizationHeader) => {
 const verifyAdminRequest = async (req) => {
   const idToken = extractBearerToken(req.headers.authorization);
   if (!idToken) {
-    return { ok: false, status: 401, error: 'Unauthorized.' };
+    return { ok: false, status: 401, error: '\u064a\u062c\u0628 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0643\u0645\u0633\u0624\u0648\u0644 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629.' };
   }
 
   const apiKey = String(process.env.VITE_FIREBASE_API_KEY || '').trim();
   if (!apiKey) {
-    return { ok: false, status: 500, error: 'Server configuration is missing.' };
+    return { ok: false, status: 500, error: '\u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u062e\u0627\u062f\u0645 \u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644\u0629.' };
   }
 
   try {
@@ -132,18 +132,18 @@ const verifyAdminRequest = async (req) => {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return { ok: false, status: 401, error: 'Unauthorized.' };
+      return { ok: false, status: 401, error: '\u064a\u062c\u0628 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0643\u0645\u0633\u0624\u0648\u0644 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629.' };
     }
 
     const user = Array.isArray(payload.users) ? payload.users[0] : null;
     const email = String(user?.email || '').trim().toLowerCase();
     if (!email) {
-      return { ok: false, status: 401, error: 'Unauthorized.' };
+      return { ok: false, status: 401, error: '\u064a\u062c\u0628 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0643\u0645\u0633\u0624\u0648\u0644 \u0644\u0644\u0645\u062a\u0627\u0628\u0639\u0629.' };
     }
 
     const allowed = getAllowedAdminEmails();
     if (allowed.size > 0 && !allowed.has(email)) {
-      return { ok: false, status: 403, error: 'Forbidden.' };
+      return { ok: false, status: 403, error: '\u0644\u0627 \u062a\u0645\u0644\u0643 \u0635\u0644\u0627\u062d\u064a\u0629 \u0627\u0644\u0648\u0635\u0648\u0644 \u0625\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0642\u0633\u0645.' };
     }
 
     return {
@@ -320,7 +320,7 @@ const buildPublicTelegramSettings = (docData, token, options = {}) => {
   return {
     enabled,
     hasToken: hasStoredToken,
-    botTokenMasked: token ? maskTelegramToken(token) : hasStoredToken ? '????????' : '',
+    botTokenMasked: token ? maskTelegramToken(token) : hasStoredToken ? '********' : '',
     chatId,
     chatIdMasked: chatId ? maskChatId(chatId) : '',
     notifications,
@@ -456,23 +456,61 @@ const toStatusLabel = (status) => {
 
 const formatItemsList = (items = []) => {
   if (!Array.isArray(items) || items.length === 0) {
-    return '\u2022 \u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u0646\u062a\u062c\u0627\u062a \u0645\u0631\u0641\u0642\u0629';
+    return '• لا توجد منتجات مرفقة';
   }
 
   return items
     .slice(0, 8)
     .map((item) => {
       const qty = Number(item?.qty) || 0;
-      const name = escapeHtml(sanitizeText(item?.name, 90) || '\u0645\u0646\u062a\u062c');
+      const name = escapeHtml(sanitizeText(item?.name, 90) || 'منتج');
       const size = sanitizeText(item?.selectedSize, 30);
       const color = sanitizeText(item?.selectedColor, 30);
-      const extras = [size ? `\u0627\u0644\u0645\u0642\u0627\u0633: ${escapeHtml(size)}` : '', color ? `\u0627\u0644\u0644\u0648\u0646: ${escapeHtml(color)}` : '']
+      const extras = [size ? `المقاس: ${escapeHtml(size)}` : '', color ? `اللون: ${escapeHtml(color)}` : '']
         .filter(Boolean)
         .join(' | ');
       const linePrice = Number.isFinite(Number(item?.lineTotal)) ? formatMoney(item.lineTotal) : formatMoney((Number(item?.price) || 0) * qty);
-      return [`\u2022 ${name} ? ${qty || 1}`, extras ? `  ${extras}` : '', `  ${linePrice}`].filter(Boolean).join('\n');
+      return [`\u2022 ${name} \u00d7 ${qty || 1}`, extras ? `  ${extras}` : '', `  ${linePrice}`].filter(Boolean).join('\n');
     })
     .join('\n');
+};
+
+const formatSeverityLabel = (value) => {
+  switch (sanitizeText(value, 30).toLowerCase()) {
+    case 'critical':
+      return 'حرج';
+    case 'high':
+      return 'مرتفع';
+    case 'medium':
+      return 'متوسط';
+    case 'low':
+      return 'منخفض';
+    case 'info':
+      return 'معلوماتي';
+    default:
+      return sanitizeText(value, 40) || 'غير محدد';
+  }
+};
+
+const formatEventTypeLabel = (eventType) => {
+  switch (sanitizeText(eventType, 80).toLowerCase()) {
+    case 'new_order':
+      return 'طلب جديد';
+    case 'order_status_changed':
+      return 'تغيير حالة الطلب';
+    case 'system_error':
+      return 'خطأ نظام';
+    case 'security_alert':
+      return 'تنبيه أمني';
+    case 'telegram_test':
+      return 'اختبار ربط تيليجرام';
+    case 'telegram_settings_changed':
+      return 'تغيير إعدادات تيليجرام';
+    case 'admin_action':
+      return 'إجراء إداري';
+    default:
+      return sanitizeText(eventType, 80) || 'إشعار إداري';
+  }
 };
 
 const formatTelegramEventMessage = ({ eventType, payload = {}, message = '' }) => {
@@ -481,76 +519,91 @@ const formatTelegramEventMessage = ({ eventType, payload = {}, message = '' }) =
 
   if (eventType === 'new_order') {
     return [
-      '<b>\u{1F6D2} \u0637\u0644\u0628 \u062c\u062f\u064a\u062f \u0641\u064a \u0627\u0644\u0645\u062a\u062c\u0631</b>',
+      '<b>🛒 طلب جديد في المتجر</b>',
       '',
-      `<b>\u{1F464} \u0627\u0644\u0632\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.customer?.name || safePayload.customerName, 120) || '-')}`,
-      `<b>\u{1F4DE} \u0627\u0644\u0647\u0627\u062a\u0641:</b> ${escapeHtml(sanitizeText(safePayload.customer?.phone || safePayload.phone, 60) || '-')}`,
-      `<b>\u{1F4CD} \u0627\u0644\u0648\u0644\u0627\u064a\u0629:</b> ${escapeHtml(sanitizeText(safePayload.customer?.wilaya || safePayload.wilaya, 80) || '-')}`,
-      `<b>\u{1F3D8} \u0627\u0644\u0628\u0644\u062f\u064a\u0629:</b> ${escapeHtml(sanitizeText(safePayload.customer?.commune || safePayload.commune, 80) || '-')}`,
-      `<b>\u{1F4B3} \u0627\u0644\u0645\u062c\u0645\u0648\u0639:</b> ${formatMoney(safePayload.totalPrice)}`,
-      Number(safePayload.discount) > 0 ? `<b>\u{1F3F7} \u0627\u0644\u062e\u0635\u0645:</b> ${formatMoney(safePayload.discount)}` : '',
-      safePayload.couponCode ? `<b>\u{1F39F} \u0627\u0644\u0643\u0648\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.couponCode, 40))}` : '',
-      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+      `<b>👤 الزبون:</b> ${escapeHtml(sanitizeText(safePayload.customer?.name || safePayload.customerName, 120) || '-')}`,
+      `<b>📞 الهاتف:</b> ${escapeHtml(sanitizeText(safePayload.customer?.phone || safePayload.phone, 60) || '-')}`,
+      `<b>📍 الولاية:</b> ${escapeHtml(sanitizeText(safePayload.customer?.wilaya || safePayload.wilaya, 80) || '-')}`,
+      `<b>🏘 البلدية:</b> ${escapeHtml(sanitizeText(safePayload.customer?.commune || safePayload.commune, 80) || '-')}`,
+      `<b>🧾 رقم الطلب:</b> #${escapeHtml(sanitizeText(safePayload.id, 40) || '-')}`,
+      `<b>📦 المجموع الفرعي:</b> ${formatMoney(safePayload.subtotal)}`,
+      `<b>🚚 سعر التوصيل:</b> ${formatMoney(safePayload.shippingFee)}`,
+      `<b>💳 المجموع:</b> ${formatMoney(safePayload.totalPrice)}`,
+      Number(safePayload.discount) > 0 ? `<b>🏷 الخصم:</b> ${formatMoney(safePayload.discount)}` : '',
+      safePayload.couponCode ? `<b>🎟 الكوبون:</b> ${escapeHtml(sanitizeText(safePayload.couponCode, 40))}` : '',
+      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
       '',
-      '<b>\u{1F4E6} \u0627\u0644\u0645\u0646\u062a\u062c\u0627\u062a</b>',
+      '<b>📦 المنتجات</b>',
       formatItemsList(safePayload.items),
-    ]
-      .filter(Boolean)
-      .join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'order_status_changed') {
     return [
-      '<b>\u{1F69A} \u062a\u062d\u062f\u064a\u062b \u062d\u0627\u0644\u0629 \u0637\u0644\u0628</b>',
+      '<b>🚚 تحديث حالة طلب</b>',
       '',
-      `<b>\u{1F9FE} \u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628:</b> #${escapeHtml(sanitizeText(safePayload.orderId, 40) || '-')}`,
-      `<b>\u{1F501} \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629:</b> ${escapeHtml(toStatusLabel(safePayload.previousStatus))}`,
-      `<b>\u2705 \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062c\u062f\u064a\u062f\u0629:</b> ${escapeHtml(toStatusLabel(safePayload.nextStatus))}`,
-      safePayload.customerName ? `<b>\u{1F464} \u0627\u0644\u0632\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.customerName, 120))}` : '',
-      `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
-      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
+      `<b>🧾 رقم الطلب:</b> #${escapeHtml(sanitizeText(safePayload.orderId, 40) || '-')}`,
+      `<b>🔁 الحالة السابقة:</b> ${escapeHtml(toStatusLabel(safePayload.previousStatus))}`,
+      `<b>✅ الحالة الجديدة:</b> ${escapeHtml(toStatusLabel(safePayload.nextStatus))}`,
+      safePayload.customerName ? `<b>👤 الزبون:</b> ${escapeHtml(sanitizeText(safePayload.customerName, 120))}` : '',
+      `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+    ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'system_error') {
     return [
-      '<b>\u{1F6A8} \u062a\u0646\u0628\u064a\u0647 \u0646\u0638\u0627\u0645</b>',
+      '<b>🚨 تنبيه نظام</b>',
       '',
-      `<b>\u{1F9E9} \u0627\u0644\u0648\u062d\u062f\u0629:</b> ${escapeHtml(sanitizeText(safePayload.module, 80) || 'system')}`,
-      `<b>\u26A0\uFE0F \u0627\u0644\u0645\u0633\u062a\u0648\u0649:</b> ${escapeHtml(sanitizeText(safePayload.severity, 40) || '\u0645\u0631\u062a\u0641\u0639')}`,
-      `<b>\u{1F4DD} \u0627\u0644\u0645\u0644\u062e\u0635:</b> ${escapeHtml(sanitizeText(safePayload.message || fallback, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062e\u0637\u0623 \u064a\u062d\u062a\u0627\u062c \u0645\u0631\u0627\u062c\u0639\u0629.')}`,
-      safePayload.suggestedAction ? `<b>\u{1F6E0} \u0627\u0644\u0625\u062c\u0631\u0627\u0621 \u0627\u0644\u0645\u0642\u062a\u0631\u062d:</b> ${escapeHtml(sanitizeText(safePayload.suggestedAction, 160))}` : '',
-      `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'system')}`,
-      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
+      `<b>🧩 الوحدة:</b> ${escapeHtml(sanitizeText(safePayload.module, 80) || 'system')}`,
+      `<b>⚠️ المستوى:</b> ${escapeHtml(sanitizeText(safePayload.severity, 40) || '\u0645\u0631\u062a\u0641\u0639')}`,
+      `<b>📝 الملخص:</b> ${escapeHtml(sanitizeText(safePayload.message || fallback, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062e\u0637\u0623 \u064a\u062d\u062a\u0627\u062c \u0645\u0631\u0627\u062c\u0639\u0629.')}`,
+      safePayload.suggestedAction ? `<b>🛠 الإجراء المقترح:</b> ${escapeHtml(sanitizeText(safePayload.suggestedAction, 160))}` : '',
+      `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'system')}`,
+      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  if (eventType === 'security_alert') {
+    return [
+      '<b>🛡️ مركز التنبيهات الأمنية</b>',
+      '',
+      `<b>📌 نوع الحدث:</b> ${escapeHtml(formatEventTypeLabel(safePayload.eventType))}`,
+      `<b>⚠️ مستوى الخطورة:</b> ${escapeHtml(formatSeverityLabel(safePayload.severity))}`,
+      `<b>🆔 رقم التنبيه:</b> ${escapeHtml(sanitizeText(safePayload.id, 80) || '-')}`,
+      `<b>🔗 المصدر:</b> ${escapeHtml(sanitizeText(safePayload.source, 80) || 'security_center')}`,
+      `<b>🌐 عنوان IP:</b> ${escapeHtml(sanitizeText(safePayload.ipAddress, 80) || '\u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641')}`,
+      safePayload.userEmail ? `<b>👤 المستخدم:</b> ${escapeHtml(sanitizeText(safePayload.userEmail, 140))}` : '',
+      safePayload.endpoint ? `<b>📍 المسار:</b> ${escapeHtml(sanitizeText(safePayload.endpoint, 160))}` : '',
+      `<b>📝 الملخص:</b> ${escapeHtml(sanitizeText(safePayload.summary, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062a\u0646\u0628\u064a\u0647 \u0623\u0645\u0646\u064a \u064a\u062d\u062a\u0627\u062c \u0625\u0644\u0649 \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629.') }`,
+      `<b>🎯 درجة المخاطر:</b> ${Number(safePayload.riskScore) || 0}/100`,
+      `<b>🕒 الوقت:</b> ${formatDateTime(safePayload.createdAt || new Date())}`,
+      '',
+      '<b>🛠️ الإجراء المقترح:</b> راجع السجلات ولوحة المراقبة ثم فعل الإجراء المناسب عند الحاجة.',
+    ].filter(Boolean).join('\n');
   }
 
   if (eventType === 'telegram_test') {
     return [
-      '<b>\u2705 \u0627\u062e\u062a\u0628\u0627\u0631 \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645</b>',
+      '<b>✅ اختبار ربط تيليجرام</b>',
       '',
-      '\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0644\u0644\u062a\u0623\u0643\u062f \u0645\u0646 \u0623\u0646 \u0627\u0644\u0631\u0628\u0637 \u064a\u0639\u0645\u0644 \u0628\u0634\u0643\u0644 \u0635\u062d\u064a\u062d.',
-      `<b>\u{1F4AC} Chat ID:</b> ${escapeHtml(sanitizeText(safePayload.chatId, 40) || '-')}`,
-      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+      'تم إرسال هذه الرسالة للتأكد من أن الربط يعمل بشكل صحيح.',
+      `<b>💬 Chat ID:</b> ${escapeHtml(sanitizeText(safePayload.chatId, 40) || '-')}`,
+      `<b>🕒 الوقت:</b> ${formatDateTime()}`,
     ].join('\n');
   }
 
   return [
-    '<b>\u{1F6E0} \u0625\u0634\u0639\u0627\u0631 \u0625\u062f\u0627\u0631\u064a</b>',
+    '<b>🛠 إشعار إداري</b>',
     '',
-    `<b>\u{1F4CC} \u0627\u0644\u0625\u062c\u0631\u0627\u0621:</b> ${escapeHtml(sanitizeText(safePayload.action, 100) || sanitizeText(eventType, 80) || 'admin_action')}`,
-    safePayload.entity ? `<b>\u{1F4C1} \u0627\u0644\u0642\u0633\u0645:</b> ${escapeHtml(sanitizeText(safePayload.entity, 100))}` : '',
-    safePayload.entityId ? `<b>\u{1F194} \u0627\u0644\u0645\u0639\u0631\u0641:</b> ${escapeHtml(sanitizeText(safePayload.entityId, 80))}` : '',
-    safePayload.label ? `<b>\u{1F4DD} \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644:</b> ${escapeHtml(sanitizeText(safePayload.label, 180))}` : '',
-    `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
-    `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+    `<b>📌 نوع الإشعار:</b> ${escapeHtml(formatEventTypeLabel(eventType))}`,
+    `<b>📌 الإجراء:</b> ${escapeHtml(sanitizeText(safePayload.action, 100) || sanitizeText(eventType, 80) || 'admin_action')}`,
+    safePayload.entity ? `<b>📁 القسم:</b> ${escapeHtml(sanitizeText(safePayload.entity, 100))}` : '',
+    safePayload.entityId ? `<b>🆔 المعرف:</b> ${escapeHtml(sanitizeText(safePayload.entityId, 80))}` : '',
+    safePayload.label ? `<b>📝 التفاصيل:</b> ${escapeHtml(sanitizeText(safePayload.label, 180))}` : '',
+    `<b>👨‍💼 بواسطة:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+    `<b>🕒 الوقت:</b> ${formatDateTime()}`,
+  ].filter(Boolean).join('\n');
 };
 
 const sendTelegramMessage = async ({ botToken, chatId, text }) => {
@@ -569,7 +622,7 @@ const sendTelegramMessage = async ({ botToken, chatId, text }) => {
   if (!response.ok || !payload?.ok) {
     return {
       ok: false,
-      error: sanitizeText(payload?.description || `Telegram API HTTP ${response.status}`, 200),
+      error: sanitizeText(payload?.description || `\u062e\u0637\u0623 API \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0631\u0642\u0645 ${response.status}`, 200),
     };
   }
 
@@ -639,7 +692,16 @@ const mapEventToFlag = (eventType) => {
     case 'order_status_changed':
       return 'orderStatus';
     case 'system_error':
+    case 'security_alert':
+    case 'telegram_alert_failed':
+    case 'api_error':
       return 'systemErrors';
+    case 'admin_action':
+    case 'telegram_settings_changed':
+    case 'telegram_command':
+    case 'telegram_command_denied':
+    case 'admin_settings_changed':
+      return 'adminActions';
     default:
       return 'adminActions';
   }

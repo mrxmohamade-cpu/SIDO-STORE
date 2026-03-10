@@ -62,17 +62,17 @@ const buildActor = (authValue, clientIp) => ({
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: '\u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u063a\u064a\u0631 \u0645\u0633\u0645\u0648\u062d \u0628\u0647\u0627.' });
   }
 
   const clientIp = getClientIp(req);
 
   if (isRateLimited('security-center', clientIp, RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS)) {
-    return res.status(429).json({ error: 'Too many requests. Please retry later.' });
+    return res.status(429).json({ error: '\u062a\u0645 \u062a\u062c\u0627\u0648\u0632 \u0627\u0644\u062d\u062f \u0627\u0644\u0645\u0633\u0645\u0648\u062d \u0628\u0647 \u0645\u0646 \u0627\u0644\u0637\u0644\u0628\u0627\u062a. \u062d\u0627\u0648\u0644 \u0644\u0627\u062d\u0642\u064b\u0627.' });
   }
 
   if (await isIpBlocked(clientIp)) {
-    return res.status(403).json({ error: 'Access denied.' });
+    return res.status(403).json({ error: '\u062a\u0645 \u0631\u0641\u0636 \u0627\u0644\u0648\u0635\u0648\u0644.' });
   }
 
   const authResult = await verifyAdminRequest(req);
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
       status: 'blocked',
     });
 
-    return res.status(authResult.status || 401).json({ error: authResult.error || 'Unauthorized.' });
+    return res.status(authResult.status || 401).json({ error: authResult.error || '\u064a\u062c\u0628 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0643\u0645\u0633\u0624\u0648\u0644 \u0623\u0648\u0644\u064b\u0627.' });
   }
 
   const actor = buildActor(authResult.value, clientIp);
@@ -158,7 +158,7 @@ export default async function handler(req, res) {
 
     const body = parseRequestBody(req.body);
     if (!body || typeof body !== 'object') {
-      return res.status(400).json({ error: 'Invalid request body.' });
+      return res.status(400).json({ error: '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0637\u0644\u0628 \u063a\u064a\u0631 \u0635\u0627\u0644\u062d\u0629.' });
     }
 
     const action = sanitizeText(body.action, 50).toLowerCase();
@@ -274,18 +274,18 @@ export default async function handler(req, res) {
 
     if (action === 'telegram_test') {
       const sendResult = await sendTelegramEventNotification({
-        eventType: 'system_error',
+        eventType: 'admin_action',
         message: [
-          '<b>Security Center Test</b>',
+          '<b>\u2705 \u0627\u062e\u062a\u0628\u0627\u0631 \u0645\u0631\u0643\u0632 \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629</b>',
           '',
-          'Telegram routing from Security Center is working.',
-          `<b>By:</b> ${sanitizeText(actor.email, 140) || 'admin'}`,
-          `<b>Time:</b> ${new Date().toISOString()}`,
+          '\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0645\u0631\u0627\u0642\u0628\u0629 \u0627\u0644\u0645\u0648\u0642\u0639 \u0644\u0644\u062a\u0623\u0643\u062f \u0645\u0646 \u0633\u0644\u0627\u0645\u0629 \u0627\u0644\u0631\u0628\u0637.',
+          `<b>\ud83d\udc64 \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${sanitizeText(actor.email, 140) || 'admin'}`,
+          `<b>\ud83d\udd52 \u0627\u0644\u0648\u0642\u062a:</b> ${new Date().toLocaleString('ar-DZ')}`,
         ].join('\n'),
       });
 
       if (!sendResult.ok) {
-        return res.status(502).json({ error: 'Failed to send test message.' });
+        return res.status(502).json({ error: '\u062a\u0639\u0630\u0631 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0627\u062e\u062a\u0628\u0627\u0631 \u0625\u0644\u0649 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645.' });
       }
 
       return res.status(200).json({ ok: true, delivered: Boolean(sendResult.delivered) });
@@ -316,7 +316,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    return res.status(400).json({ error: 'Invalid action.' });
+    return res.status(400).json({ error: '\u0627\u0644\u0625\u062c\u0631\u0627\u0621 \u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641.' });
   } catch (error) {
     await logSecurityEvent({
       eventType: 'api_error',
@@ -332,6 +332,6 @@ export default async function handler(req, res) {
       },
     });
 
-    return res.status(500).json({ error: 'Failed to process Security Center request.' });
+    return res.status(500).json({ error: '\u062a\u0639\u0630\u0631 \u0645\u0639\u0627\u0644\u062c\u0629 \u0637\u0644\u0628 \u0645\u0631\u0643\u0632 \u0627\u0644\u0645\u0631\u0627\u0642\u0628\u0629.' });
   }
 }

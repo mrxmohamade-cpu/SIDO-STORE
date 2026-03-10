@@ -84,7 +84,7 @@ const isRateLimited = (ip) => {
 
 const validateCustomer = (customer) => {
   if (!customer || typeof customer !== 'object') {
-    return { ok: false, message: 'Customer data is required.' };
+    return { ok: false, message: 'بيانات الزبون مطلوبة.' };
   }
 
   const name = sanitizeText(customer.name, NAME_MAX_LENGTH);
@@ -93,19 +93,19 @@ const validateCustomer = (customer) => {
   const commune = sanitizeText(customer.commune_name || customer.commune || customer.city, 80);
 
   if (name.length < NAME_MIN_LENGTH) {
-    return { ok: false, message: 'Customer name is too short.' };
+    return { ok: false, message: 'اسم الزبون قصير جدًا.' };
   }
 
   if (!/^(\+?213|0)(5|6|7)\d{8}$/.test(phone)) {
-    return { ok: false, message: 'Customer phone is invalid.' };
+    return { ok: false, message: 'رقم هاتف الزبون غير صالح.' };
   }
 
   if (!wilaya) {
-    return { ok: false, message: 'Wilaya is required.' };
+    return { ok: false, message: 'الولاية مطلوبة.' };
   }
 
   if (!commune) {
-    return { ok: false, message: 'Commune is required.' };
+    return { ok: false, message: 'البلدية مطلوبة.' };
   }
 
   return {
@@ -121,11 +121,11 @@ const validateCustomer = (customer) => {
 
 const validateItems = (items) => {
   if (!Array.isArray(items) || items.length === 0) {
-    return { ok: false, message: 'At least one product is required.' };
+    return { ok: false, message: 'يجب اختيار منتج واحد على الأقل.' };
   }
 
   if (items.length > ORDER_MAX_ITEMS) {
-    return { ok: false, message: 'Order has too many items.' };
+    return { ok: false, message: 'عدد المنتجات في الطلب كبير جدًا.' };
   }
 
   const sanitizedItems = [];
@@ -137,11 +137,11 @@ const validateItems = (items) => {
     const price = Number(item?.price);
 
     if (!name || !Number.isInteger(qty) || qty <= 0 || qty > 999) {
-      return { ok: false, message: 'A product quantity is invalid.' };
+      return { ok: false, message: 'كمية أحد المنتجات غير صالحة.' };
     }
 
     if (!Number.isFinite(price) || price < 0 || price > 1_000_000_000) {
-      return { ok: false, message: 'A product price is invalid.' };
+      return { ok: false, message: 'سعر أحد المنتجات غير صالح.' };
     }
 
     const lineTotal = roundMoney(qty * price);
@@ -168,7 +168,7 @@ const validateItems = (items) => {
 
 const validateOrderPayload = (payload) => {
   if (!payload || typeof payload !== 'object') {
-    return { ok: false, message: 'Order payload is invalid.' };
+    return { ok: false, message: 'بيانات الطلب غير صالحة.' };
   }
 
   const customerResult = validateCustomer(payload.customer);
@@ -178,19 +178,21 @@ const validateOrderPayload = (payload) => {
   if (!itemsResult.ok) return itemsResult;
 
   const discountInput = Number(payload.discount);
+  const shippingFeeInput = Number(payload.shippingFee);
   const totalInput = Number(payload.totalPrice);
 
   const subtotal = itemsResult.value.computedSubtotal;
   const discount = Number.isFinite(discountInput) && discountInput >= 0 ? roundMoney(discountInput) : 0;
+  const shippingFee = Number.isFinite(shippingFeeInput) && shippingFeeInput >= 0 ? roundMoney(shippingFeeInput) : 0;
 
   if (discount > subtotal) {
-    return { ok: false, message: 'Discount cannot exceed subtotal.' };
+    return { ok: false, message: 'قيمة الخصم لا يمكن أن تتجاوز المجموع الفرعي.' };
   }
 
-  const expectedTotal = roundMoney(subtotal - discount);
+  const expectedTotal = roundMoney(subtotal - discount + shippingFee);
 
   if (Number.isFinite(totalInput) && Math.abs(roundMoney(totalInput) - expectedTotal) > 1) {
-    return { ok: false, message: 'Order total does not match item totals.' };
+    return { ok: false, message: 'الإجمالي النهائي للطلب غير مطابق لمجموع المنتجات والتوصيل.' };
   }
 
   const couponCode = sanitizeText(payload.couponCode, 40).toUpperCase();
@@ -202,6 +204,7 @@ const validateOrderPayload = (payload) => {
       items: itemsResult.value.items,
       subtotal,
       discount,
+      shippingFee,
       totalPrice: expectedTotal,
       couponCode,
     },
@@ -216,7 +219,7 @@ const formatOrderMessage = (order) =>
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'الطريقة غير مسموح بها.' });
   }
 
   const clientIp = getClientIp(req);
@@ -232,7 +235,7 @@ export default async function handler(req, res) {
         status: 'blocked',
       }),
     );
-    return res.status(403).json({ error: 'Access denied.' });
+    return res.status(403).json({ error: 'تم رفض الوصول.' });
   }
 
   if (isRateLimited(clientIp)) {
@@ -247,7 +250,7 @@ export default async function handler(req, res) {
         metadata: { ipAddress: clientIp },
       }),
     );
-    return res.status(429).json({ error: 'Too many requests. Please retry in one minute.' });
+    return res.status(429).json({ error: '\u062a\u0645 \u062a\u062c\u0627\u0648\u0632 \u0627\u0644\u062d\u062f \u0627\u0644\u0645\u0633\u0645\u0648\u062d \u0628\u0647 \u0645\u0646 \u0627\u0644\u0637\u0644\u0628\u0627\u062a. \u062d\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649 \u0628\u0639\u062f \u0642\u0644\u064a\u0644.' });
   }
 
   const body = parseRequestBody(req.body);
@@ -262,7 +265,7 @@ export default async function handler(req, res) {
         status: 'rejected',
       }),
     );
-    return res.status(400).json({ error: 'Invalid request body.' });
+    return res.status(400).json({ error: 'بيانات الطلب المرسلة غير صالحة.' });
   }
 
   const validation = validateOrderPayload(body.order);
@@ -322,7 +325,7 @@ export default async function handler(req, res) {
           },
         }),
       );
-      return res.status(502).json({ error: 'Failed to deliver order notification.' });
+      return res.status(502).json({ error: '\u062a\u0639\u0630\u0631 \u0625\u0631\u0633\u0627\u0644 \u0625\u0634\u0639\u0627\u0631 \u0627\u0644\u0637\u0644\u0628 \u0625\u0644\u0649 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645.' });
     }
 
     return res.status(200).json({
@@ -344,6 +347,6 @@ export default async function handler(req, res) {
       }),
     );
 
-    return res.status(500).json({ error: 'Internal server error.' });
+    return res.status(500).json({ error: '\u062d\u062f\u062b \u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639 \u0623\u062b\u0646\u0627\u0621 \u0645\u0639\u0627\u0644\u062c\u0629 \u0627\u0644\u0637\u0644\u0628.' });
   }
 }
