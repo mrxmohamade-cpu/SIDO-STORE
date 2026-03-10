@@ -103,6 +103,7 @@ const STORAGE_KEYS = {
   products: 'my_store_products_v2',
   orders: 'my_store_orders_v2',
   customerOrders: 'my_store_customer_orders_v1',
+  cart: 'my_store_cart_v1',
   siteConfig: 'my_store_site_config_v2',
   favorites: 'my_store_favorites_v1',
   adminTheme: 'my_store_admin_theme_v1',
@@ -477,6 +478,76 @@ const normalizeOrders = (items) => {
     status: item.status || 'pending',
     date: item.date || new Date().toISOString(),
   }));
+};
+
+const normalizeCartItems = (items) => {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item, index) => {
+      const rawImages = Array.isArray(item?.images) ? item.images : [];
+      const normalizedImages = Array.from(
+        new Set(
+          [
+            ...rawImages.map((entry) => String(entry || '').trim()),
+            String(item?.image || '').trim(),
+          ].filter(Boolean),
+        ),
+      );
+      const coverImage = normalizedImages[0] || String(item?.image || '').trim();
+      const stock = item?.stock === undefined || item?.stock === null || item?.stock === ''
+        ? Number.POSITIVE_INFINITY
+        : clampStock(item.stock);
+
+      return {
+        ...item,
+        id: item?.id ?? ('cart-item-' + index),
+        name: String(item?.name || '').trim(),
+        image: coverImage,
+        images: normalizedImages,
+        price: Math.max(0, Number(item?.price) || 0),
+        oldPrice: Number(item?.oldPrice) > 0 ? Number(item.oldPrice) : 0,
+        stock,
+        qty: Math.max(1, Number(item?.qty) || 1),
+        selectedSize: String(item?.selectedSize || '').trim(),
+        selectedColor: String(item?.selectedColor || '').trim(),
+        cartKey: item?.cartKey || buildCartItemKey(item || {}),
+        variants: normalizeProductVariants(item?.variants),
+      };
+    })
+    .filter((item) => item.name || item.id);
+};
+
+const mergeCustomerOrdersWithOrders = (currentCustomerOrders, allOrders) => {
+  const customerList = Array.isArray(currentCustomerOrders) ? currentCustomerOrders : [];
+  const liveOrders = Array.isArray(allOrders) ? allOrders : [];
+  if (customerList.length === 0 || liveOrders.length === 0) return customerList;
+
+  const ordersMap = new Map(liveOrders.map((entry) => [String(entry.id), entry]));
+  let changed = false;
+
+  const nextOrders = customerList.map((entry) => {
+    const liveOrder = ordersMap.get(String(entry.id));
+    if (!liveOrder) return entry;
+
+    const mergedOrder = {
+      ...entry,
+      ...liveOrder,
+      customer: {
+        ...(entry.customer || {}),
+        ...(liveOrder.customer || {}),
+      },
+      items: Array.isArray(liveOrder.items) && liveOrder.items.length > 0 ? liveOrder.items : entry.items,
+    };
+
+    if (JSON.stringify(mergedOrder) !== JSON.stringify(entry)) {
+      changed = true;
+    }
+
+    return mergedOrder;
+  });
+
+  return changed ? normalizeOrders(nextOrders) : customerList;
 };
 
 const getOrderStatusMeta = (status) => {
@@ -1610,6 +1681,10 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [cooldownUntil, setCooldownUntil] = useState(0);
 
+  const blockedUntilLabel = securityStatus?.blockedUntil
+    ? new Date(securityStatus.blockedUntil).toLocaleString('ar-DZ')
+    : '';
+
   const requestMeta = {
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     page: '/admin/login',
@@ -1620,6 +1695,11 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
 
     if (!auth) {
       showToast('Cannot log in because authentication service is unavailable.', 'error');
+      return;
+    }
+
+    if (securityStatus?.blocked) {
+      showToast(blockedUntilLabel ? '\u062a\u0645 \u062d\u0638\u0631 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0624\u0642\u062a\u064b\u0627 \u062d\u062a\u0649 ' + blockedUntilLabel : '\u062a\u0645 \u062d\u0638\u0631 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0624\u0642\u062a\u064b\u0627 \u0628\u0648\u0627\u0633\u0637\u0629 \u0646\u0638\u0627\u0645 \u0627\u0644\u062d\u0645\u0627\u064a\u0629.', 'error');
       return;
     }
 
@@ -1691,6 +1771,11 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
   const handleForgotPassword = async () => {
     if (!auth) {
       showToast('Unable to send reset link because service is unavailable.', 'error');
+      return;
+    }
+
+    if (securityStatus?.blocked) {
+      showToast(blockedUntilLabel ? '\u062a\u0645 \u062d\u0638\u0631 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0624\u0642\u062a\u064b\u0627 \u062d\u062a\u0649 ' + blockedUntilLabel : '\u062a\u0645 \u062d\u0638\u0631 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0624\u0642\u062a\u064b\u0627 \u0628\u0648\u0627\u0633\u0637\u0629 \u0646\u0638\u0627\u0645 \u0627\u0644\u062d\u0645\u0627\u064a\u0629.', 'error');
       return;
     }
 
@@ -1788,7 +1873,7 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
 
           <button
             type="submit"
-            disabled={isSubmitting || !auth || !securityStatus?.loginEnabled}
+            disabled={isSubmitting || !auth || !securityStatus?.loginEnabled || securityStatus?.blocked}
             className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-slate-900/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? 'Signing in...' : 'Sign In'}
@@ -1797,7 +1882,7 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
           <button
             type="button"
             onClick={handleForgotPassword}
-            disabled={isSendingReset || !auth || !securityStatus?.resetPasswordEnabled}
+            disabled={isSendingReset || !auth || !securityStatus?.resetPasswordEnabled || securityStatus?.blocked}
             className="w-full text-sm font-bold text-emerald-700 hover:text-emerald-600 py-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSendingReset ? 'Sending...' : 'Forgot Password'}
@@ -1810,6 +1895,11 @@ const AdminLogin = ({ showToast, onBackToStore, securityStatus }) => {
         >
           Back to Store
         </button>
+        {securityStatus?.blocked && (
+          <div className="mt-4 rounded-2xl bg-rose-50 border border-rose-200 p-3 text-xs font-bold text-rose-700 text-center">
+            {blockedUntilLabel ? '\u062a\u0645 \u062a\u0639\u0644\u064a\u0642 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u062c\u0647\u0627\u0632 \u062d\u062a\u0649 ' + blockedUntilLabel : '\u062a\u0645 \u062a\u0639\u0644\u064a\u0642 \u0627\u0644\u0648\u0635\u0648\u0644 \u0645\u0646 \u0647\u0630\u0627 \u0627\u0644\u062c\u0647\u0627\u0632 \u0645\u0624\u0642\u062a\u064b\u0627.'}
+          </div>
+        )}
         {!auth && (
           <div className="mt-4 rounded-2xl bg-orange-50 border border-orange-200 p-3 text-xs font-bold text-orange-700 text-center">
             Authentication service is not configured correctly.
@@ -1942,7 +2032,7 @@ const LazyAdminCMS = lazy(() => import('./pages/AdminCMS'));
 
 export default function App() {
   const [currentRoute, setCurrentRoute] = useState(ROUTES.home);
-  const [cart, dispatchCart] = useReducer(cartReducer, []);
+  const [cart, dispatchCart] = useReducer(cartReducer, readStorage(STORAGE_KEYS.cart, []), normalizeCartItems);
   const [orders, setOrders] = useState(() => normalizeOrders(readStorage(STORAGE_KEYS.orders, [])));
   const [customerOrders, setCustomerOrders] = useState(() => normalizeOrders(readStorage(STORAGE_KEYS.customerOrders, [])));
   const [adminUser, setAdminUser] = useState(null);
@@ -1968,7 +2058,14 @@ export default function App() {
   const [isCartAnimating, setIsCartAnimating] = useState(false);
   const [isCouponCelebrating, setIsCouponCelebrating] = useState(false);
   const [isOrderCelebrating, setIsOrderCelebrating] = useState(false);
-  const [securityStatus, setSecurityStatus] = useState({ loginEnabled: true, resetPasswordEnabled: true, heightenedProtection: false });
+  const [securityStatus, setSecurityStatus] = useState({
+    loginEnabled: true,
+    resetPasswordEnabled: true,
+    heightenedProtection: false,
+    blocked: false,
+    blockedUntil: '',
+    blockedReason: '',
+  });
   const cartAnimationTimeoutRef = useRef(null);
   const audioContextRef = useRef(null);
   const isAdminAuth = Boolean(adminUser);
@@ -2015,6 +2112,9 @@ export default function App() {
             loginEnabled: Boolean(status.loginEnabled ?? true),
             resetPasswordEnabled: Boolean(status.resetPasswordEnabled ?? true),
             heightenedProtection: Boolean(status.heightenedProtection ?? false),
+            blocked: Boolean(status.blocked ?? false),
+            blockedUntil: String(status.blockedUntil || ''),
+            blockedReason: String(status.blockedReason || ''),
           });
         }
       } catch {
@@ -2074,6 +2174,14 @@ export default function App() {
 
   useEffect(() => {
     writeStorage(STORAGE_KEYS.orders, orders);
+  }, [orders]);
+
+  useEffect(() => {
+    writeStorage(STORAGE_KEYS.cart, cart);
+  }, [cart]);
+
+  useEffect(() => {
+    setCustomerOrders((previous) => mergeCustomerOrdersWithOrders(previous, orders));
   }, [orders]);
 
   useEffect(() => {

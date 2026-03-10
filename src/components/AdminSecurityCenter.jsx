@@ -60,6 +60,7 @@ const severityBadgeClass = (severity, isDarkMode) => {
 };
 
 const DEFAULT_SETTINGS = {
+  retentionDays: 15,
   thresholds: {
     failedLoginBurst: 5,
     resetPasswordBurst: 4,
@@ -73,6 +74,10 @@ const DEFAULT_SETTINGS = {
     loginEnabled: true,
     resetPasswordEnabled: true,
     heightenedProtection: false,
+  },
+  autoActions: {
+    autoBlockOnCritical: true,
+    autoBlockDurationMinutes: 1440,
   },
 };
 
@@ -472,9 +477,15 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
                   <p className={`text-xs font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>No blocked IP addresses.</p>
                 ) : (
                   blockedIps.filter((entry) => entry.status === 'blocked').map((entry) => (
-                    <div key={entry.id || entry.ipAddress} className="flex items-center justify-between gap-2 text-xs">
-                      <span className={isDarkMode ? 'text-slate-200 font-black' : 'text-slate-700 font-black'}>{entry.ipAddress}</span>
-                      <button onClick={() => runAction('unblock_ip', { ipAddress: entry.ipAddress }, 'IP unblocked')} className="px-2 py-1 rounded-lg bg-emerald-600 text-white font-black">Unblock</button>
+                    <div key={entry.id || entry.ipAddress} className={isDarkMode ? 'rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2' : 'rounded-xl border border-slate-200 bg-white px-3 py-2'}>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className={isDarkMode ? 'text-slate-200 font-black' : 'text-slate-700 font-black'}>{entry.ipAddress}</span>
+                        <button onClick={() => runAction('unblock_ip', { ipAddress: entry.ipAddress }, 'IP unblocked')} className="px-2 py-1 rounded-lg bg-emerald-600 text-white font-black">Unblock</button>
+                      </div>
+                      <div className={isDarkMode ? 'mt-1 space-y-1 text-[11px] font-bold text-slate-400' : 'mt-1 space-y-1 text-[11px] font-bold text-slate-500'}>
+                        <p>Reason: {entry.reason || 'n/a'}</p>
+                        <p>Until: {entry.expiresAt ? new Date(entry.expiresAt).toLocaleString('fr-DZ') : 'manual release only'}</p>
+                      </div>
                     </div>
                   ))
                 )}
@@ -525,15 +536,24 @@ const AdminSecurityCenter = ({ isDarkMode, showToast, adminUser, pageTransition 
               </select>
             </label>
             <label className="text-sm font-black">
+              <span className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>retentionDays</span>
+              <input type="number" min="7" max="180" value={draftSettings.retentionDays || 15} onChange={(event) => setDraftSettings((previous) => ({ ...previous, retentionDays: Number(event.target.value) || 15 }))} className={`mt-1 w-full rounded-xl border px-3 py-2 ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`} />
+            </label>
+            <label className="text-sm font-black">
+              <span className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>autoBlockDurationMinutes</span>
+              <input type="number" min="15" max="10080" value={draftSettings.autoActions?.autoBlockDurationMinutes || 1440} onChange={(event) => setDraftSettings((previous) => ({ ...previous, autoActions: { ...(previous.autoActions || {}), autoBlockDurationMinutes: Number(event.target.value) || 1440 } }))} className={`mt-1 w-full rounded-xl border px-3 py-2 ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`} />
+            </label>
+            <label className="text-sm font-black md:col-span-2">
               <span className={isDarkMode ? 'text-slate-200' : 'text-slate-700'}>mutedEventTypes (comma separated)</span>
               <input type="text" value={Array.isArray(draftSettings.telegram?.mutedEventTypes) ? draftSettings.telegram.mutedEventTypes.join(', ') : ''} onChange={(event) => setDraftSettings((previous) => ({ ...previous, telegram: { ...(previous.telegram || {}), mutedEventTypes: parseListInput(event.target.value) } }))} className={`mt-1 w-full rounded-xl border px-3 py-2 ${isDarkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`} />
             </label>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
             <button type="button" onClick={() => setDraftSettings((previous) => ({ ...previous, telegram: { ...(previous.telegram || {}), enabled: !(previous.telegram?.enabled ?? true) } }))} className={`px-3 py-2 rounded-xl text-sm font-black ${draftSettings.telegram?.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-600 text-white'}`}>{draftSettings.telegram?.enabled ? 'Telegram: ON' : 'Telegram: OFF'}</button>
             <button type="button" onClick={() => setDraftSettings((previous) => ({ ...previous, controls: { ...(previous.controls || {}), loginEnabled: !(previous.controls?.loginEnabled ?? true) } }))} className={`px-3 py-2 rounded-xl text-sm font-black ${draftSettings.controls?.loginEnabled ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>{draftSettings.controls?.loginEnabled ? 'Login Enabled' : 'Login Disabled'}</button>
             <button type="button" onClick={() => setDraftSettings((previous) => ({ ...previous, controls: { ...(previous.controls || {}), resetPasswordEnabled: !(previous.controls?.resetPasswordEnabled ?? true) } }))} className={`px-3 py-2 rounded-xl text-sm font-black ${draftSettings.controls?.resetPasswordEnabled ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-slate-950'}`}>{draftSettings.controls?.resetPasswordEnabled ? 'Reset Enabled' : 'Reset Disabled'}</button>
+            <button type="button" onClick={() => setDraftSettings((previous) => ({ ...previous, autoActions: { ...(previous.autoActions || {}), autoBlockOnCritical: !(previous.autoActions?.autoBlockOnCritical ?? true) } }))} className={`px-3 py-2 rounded-xl text-sm font-black ${(draftSettings.autoActions?.autoBlockOnCritical ?? true) ? 'bg-rose-600 text-white' : 'bg-slate-600 text-white'}`}>{(draftSettings.autoActions?.autoBlockOnCritical ?? true) ? 'Auto Block: ON' : 'Auto Block: OFF'}</button>
           </div>
 
           <div className="flex justify-end gap-2">

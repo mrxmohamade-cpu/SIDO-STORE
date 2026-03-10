@@ -3,6 +3,7 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -69,9 +70,14 @@ const MEMORY_STORE = globalThis.__securityMemoryStoreV2 || {
 };
 globalThis.__securityMemoryStoreV2 = MEMORY_STORE;
 
+const HOUSEKEEPING_STATE = globalThis.__securityHousekeepingStateV1 || {
+  retentionLastRunAt: 0,
+};
+globalThis.__securityHousekeepingStateV1 = HOUSEKEEPING_STATE;
+
 const DEFAULT_SECURITY_SETTINGS = {
   enabled: true,
-  retentionDays: 30,
+  retentionDays: 15,
   thresholds: {
     failedLoginBurst: 5,
     resetPasswordBurst: 4,
@@ -101,8 +107,8 @@ const DEFAULT_SECURITY_SETTINGS = {
     heightenedProtection: false,
   },
   autoActions: {
-    autoBlockOnCritical: false,
-    autoBlockDurationMinutes: 30,
+    autoBlockOnCritical: true,
+    autoBlockDurationMinutes: 1440,
   },
 };
 
@@ -216,7 +222,7 @@ const normalizeSecuritySettings = (rawValue) => {
     },
     autoActions: {
       autoBlockOnCritical: normalizeBoolean(autoActionsSource.autoBlockOnCritical, DEFAULT_SECURITY_SETTINGS.autoActions.autoBlockOnCritical),
-      autoBlockDurationMinutes: clampNumber(autoActionsSource.autoBlockDurationMinutes, 5, 720, DEFAULT_SECURITY_SETTINGS.autoActions.autoBlockDurationMinutes),
+      autoBlockDurationMinutes: clampNumber(autoActionsSource.autoBlockDurationMinutes, 15, 10080, DEFAULT_SECURITY_SETTINGS.autoActions.autoBlockDurationMinutes),
     },
   };
 };
@@ -385,6 +391,192 @@ const shouldSendTelegramForAlert = (alert, settings) => {
 const formatTelegramAlertMessage = () => '';
 
 const collectionRef = (db, key) => collection(db, SECURITY_COLLECTIONS[key]);
+
+const RETENTION_COLLECTION_KEYS = ['events', 'alerts', 'auditLogs', 'incidentActions'];
+const AUTO_BLOCK_ALERT_REASONS = new Set([
+  'failed_login_burst',
+  'reset_password_abuse',
+  'mixed_auth_abuse',
+  'suspicious_request_burst',
+  'malicious_payload',
+  'server_error_spike',
+]);
+
+const buildSystemActor = () => ({
+  email: 'security-system',
+  uid: 'security-system',
+  ipAddress: 'internal',
+});
+
+const isBlockExpired = (entry, at = Date.now()) =>
+  Boolean(
+    entry
+      && entry.status === 'blocked'
+      && Number(entry.expiresAtEpoch || 0) > 0
+      && at >= Number(entry.expiresAtEpoch),
+  );
+
+const readBlockedIpEntry = async (normalizedIp) => {
+  const safeIp = sanitizeIp(normalizedIp);
+  if (!safeIp || safeIp === 'unknown') return null;
+
+  const docId = docIdFromValue(safeIp);
+  const db = getDb();
+
+  if (!db) {
+    return MEMORY_STORE.blockedIps.get(docId) || null;
+  }
+
+  const snapshot = await getDoc(doc(db, SECURITY_COLLECTIONS.blockedIps, docId));
+  return snapshot.exists() ? { id: snapshot.id, ...(snapshot.data() || {}) } : null;
+};
+
+const persistBlockedIpEntry = async (normalizedIp, entry) => {
+  const safeIp = sanitizeIp(normalizedIp);
+  if (!safeIp || safeIp === 'unknown') throw new Error('Invalid IP address.');
+
+  const docId = docIdFromValue(safeIp);
+  const nextEntry = { ...entry, ipAddress: safeIp, id: entry?.id || docId };
+  const db = getDb();
+
+  if (!db) {
+    MEMORY_STORE.blockedIps.set(docId, nextEntry);
+    return nextEntry;
+  }
+
+  await setDoc(doc(db, SECURITY_COLLECTIONS.blockedIps, docId), nextEntry, { merge: true });
+  return nextEntry;
+};
+
+const expireBlockedIpEntry = async ({ ipAddress, currentEntry, reason = 'expired' }) => {
+  const safeIp = sanitizeIp(ipAddress);
+  if (!safeIp || safeIp === 'unknown') return null;
+
+  const existing = currentEntry || (await readBlockedIpEntry(safeIp));
+  if (!existing || existing.status !== 'blocked') return existing;
+
+  const timestamp = Date.now();
+  const iso = new Date(timestamp).toISOString();
+  const patch = {
+    ...existing,
+    ipAddress: safeIp,
+    status: 'unblocked',
+    updatedAt: iso,
+    updatedAtEpoch: timestamp,
+    unblockedAt: iso,
+    unblockedBy: 'security-system',
+    unblockReason: sanitizeText(reason, 160) || 'expired',
+    autoExpired: true,
+  };
+
+  return persistBlockedIpEntry(safeIp, patch);
+};
+
+const getActiveBlockedIpEntry = async (ipAddress) => {
+  const safeIp = sanitizeIp(ipAddress);
+  if (!safeIp || safeIp === 'unknown') return null;
+
+  const entry = await readBlockedIpEntry(safeIp);
+  if (!entry || entry.status !== 'blocked') return null;
+
+  if (isBlockExpired(entry)) {
+    await expireBlockedIpEntry({ ipAddress: safeIp, currentEntry: entry, reason: 'automatic_expiry' });
+    return null;
+  }
+
+  return entry;
+};
+
+const applyBlockedIpEntry = async ({ ipAddress, reason, actor = {}, durationMinutes, blockSource = 'manual' }) => {
+  const safeIp = sanitizeIp(ipAddress);
+  if (!safeIp || safeIp === 'unknown') {
+    throw new Error('Invalid IP address.');
+  }
+
+  const current = await readBlockedIpEntry(safeIp);
+  const timestamp = Date.now();
+  const iso = new Date(timestamp).toISOString();
+  const duration = clampNumber(durationMinutes, 15, 10080, DEFAULT_SECURITY_SETTINGS.autoActions.autoBlockDurationMinutes);
+  const expiresAtEpoch = timestamp + duration * 60 * 1000;
+
+  const entry = {
+    ...(current || {}),
+    ipAddress: safeIp,
+    status: 'blocked',
+    reason: sanitizeText(reason, 220) || 'Security action',
+    blockedAt: iso,
+    blockedBy: sanitizeText(actor?.email, 140) || (blockSource === 'automatic' ? 'security-system' : ''),
+    blockedByUid: sanitizeText(actor?.uid, 80),
+    blockedByType: blockSource === 'automatic' ? 'system' : 'admin',
+    auto: blockSource === 'automatic',
+    durationMinutes: duration,
+    expiresAt: new Date(expiresAtEpoch).toISOString(),
+    expiresAtEpoch,
+    createdAt: current?.createdAt || iso,
+    createdAtEpoch: Number(current?.createdAtEpoch || 0) || timestamp,
+    updatedAt: iso,
+    updatedAtEpoch: timestamp,
+    unblockedAt: '',
+    unblockedBy: '',
+    unblockReason: '',
+    autoExpired: false,
+  };
+
+  return persistBlockedIpEntry(safeIp, entry);
+};
+
+const pruneMemoryList = (items, cutoffEpoch, maxItems) =>
+  (Array.isArray(items) ? items : [])
+    .filter((item) => Number(item?.createdAtEpoch || 0) >= cutoffEpoch)
+    .slice(0, maxItems);
+
+const cleanupInMemoryRetention = (cutoffEpoch) => {
+  MEMORY_STORE.events = pruneMemoryList(MEMORY_STORE.events, cutoffEpoch, 2500);
+  MEMORY_STORE.alerts = pruneMemoryList(MEMORY_STORE.alerts, cutoffEpoch, 1200);
+  MEMORY_STORE.auditLogs = pruneMemoryList(MEMORY_STORE.auditLogs, cutoffEpoch, 3000);
+  MEMORY_STORE.incidentActions = pruneMemoryList(MEMORY_STORE.incidentActions, cutoffEpoch, 1000);
+};
+
+const cleanupRetentionCollection = async (db, key, cutoffEpoch, maxItems = 250) => {
+  const snapshot = await getDocs(query(collectionRef(db, key), orderBy('createdAtEpoch', 'asc'), limit(maxItems)));
+  if (!snapshot.docs.length) return 0;
+
+  const staleDocs = snapshot.docs.filter((entry) => {
+    const data = entry.data() || {};
+    const epoch = Number(data.createdAtEpoch || 0);
+    return epoch > 0 && epoch < cutoffEpoch;
+  });
+
+  if (!staleDocs.length) return 0;
+
+  await Promise.all(staleDocs.map((entry) => deleteDoc(entry.ref)));
+  return staleDocs.length;
+};
+
+const maybeRunRetentionCleanup = async (settingsInput = null) => {
+  const now = Date.now();
+  if (now - Number(HOUSEKEEPING_STATE.retentionLastRunAt || 0) < 30 * 60 * 1000) {
+    return false;
+  }
+
+  HOUSEKEEPING_STATE.retentionLastRunAt = now;
+
+  try {
+    const settings = settingsInput || (await getSecuritySettings());
+    const retentionDays = clampNumber(settings.retentionDays, 7, 180, DEFAULT_SECURITY_SETTINGS.retentionDays);
+    const cutoffEpoch = now - retentionDays * 24 * 60 * 60 * 1000;
+
+    cleanupInMemoryRetention(cutoffEpoch);
+
+    const db = getDb();
+    if (!db) return true;
+
+    await Promise.all(RETENTION_COLLECTION_KEYS.map((key) => cleanupRetentionCollection(db, key, cutoffEpoch)));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const writeEventRecord = async (record) => {
   const db = getDb();
@@ -598,6 +790,49 @@ const maybePromoteToAlert = async (event, settings) => {
   return writeAlertRecord(alertRecord);
 };
 
+const maybeApplyAutomaticBlock = async (alert, settings) => {
+  if (!alert || !settings?.autoActions?.autoBlockOnCritical) return null;
+
+  const targetIp = sanitizeIp(alert.ipAddress);
+  if (!targetIp || targetIp === 'unknown' || targetIp === 'internal') return null;
+
+  const isHighRisk = Number(alert.riskScore || 0) >= 95;
+  const reason = sanitizeText(alert.reason, 80);
+  const shouldBlock = alert.severity === 'critical' || AUTO_BLOCK_ALERT_REASONS.has(reason) || isHighRisk;
+  if (!shouldBlock) return null;
+
+  const activeBlock = await getActiveBlockedIpEntry(targetIp);
+  if (activeBlock) return activeBlock;
+
+  const entry = await applyBlockedIpEntry({
+    ipAddress: targetIp,
+    reason: sanitizeText('Automatic security block: ' + (alert.summary || alert.eventType), 220),
+    actor: buildSystemActor(),
+    durationMinutes: settings.autoActions.autoBlockDurationMinutes,
+    blockSource: 'automatic',
+  });
+
+  await updateAlertRecord(alert.id, {
+    autoBlockedAt: nowIso(),
+    autoBlockedUntil: entry.expiresAt,
+    updatedAt: nowIso(),
+    updatedBy: 'security-system',
+  });
+
+  await addIncidentAction({
+    action: 'auto_block_ip',
+    actor: buildSystemActor(),
+    payload: {
+      ipAddress: targetIp,
+      alertId: alert.id,
+      durationMinutes: entry.durationMinutes,
+      reason: reason || alert.eventType,
+    },
+  });
+
+  return entry;
+};
+
 const logSecurityEvent = async (input = {}) => {
   const safeInput = input && typeof input === 'object' ? input : {};
   const severity = normalizeSeverity(
@@ -630,11 +865,13 @@ const logSecurityEvent = async (input = {}) => {
   pushToEventBuffer(eventRecord);
 
   const settings = await getSecuritySettings();
+  await maybeRunRetentionCleanup(settings).catch(() => {});
   if (!settings.enabled) {
-    return { event: writtenEvent, alert: null, notified: false };
+    return { event: writtenEvent, alert: null, notified: false, blockedEntry: null };
   }
 
   const alert = await maybePromoteToAlert({ ...eventRecord, id: writtenEvent.id }, settings);
+  const blockedEntry = alert ? await maybeApplyAutomaticBlock(alert, settings) : null;
 
   let notified = false;
   if (alert && shouldSendTelegramForAlert(alert, settings)) {
@@ -667,10 +904,11 @@ const logSecurityEvent = async (input = {}) => {
     }
   }
 
-  return { event: writtenEvent, alert, notified };
+  return { event: writtenEvent, alert, notified, blockedEntry };
 };
 
 const logAdminAudit = async ({ action, actorEmail, actorUid, ipAddress, targetType, targetId, before, after, metadata }) => {
+  await maybeRunRetentionCleanup().catch(() => {});
   const record = {
     action: sanitizeText(action, 120) || 'admin_action',
     actorEmail: sanitizeText(actorEmail, 140),
@@ -698,6 +936,7 @@ const logAdminAudit = async ({ action, actorEmail, actorUid, ipAddress, targetTy
 };
 
 const listRecordsFromCollection = async (key, maxItems = 300) => {
+  await maybeRunRetentionCleanup().catch(() => {});
   const db = getDb();
 
   if (!db) {
@@ -830,29 +1069,19 @@ const setAlertState = async ({ alertId, patch = {}, actor = {} }) => {
   });
 };
 
-const blockIpAddress = async ({ ipAddress, reason, actor }) => {
+const blockIpAddress = async ({ ipAddress, reason, actor, durationMinutes }) => {
   const normalizedIp = sanitizeIp(ipAddress);
   if (!normalizedIp || normalizedIp === 'unknown') {
     throw new Error('Invalid IP address.');
   }
 
-  const entry = {
+  const entry = await applyBlockedIpEntry({
     ipAddress: normalizedIp,
-    status: 'blocked',
     reason: sanitizeText(reason, 220) || 'Manual security action',
-    blockedAt: nowIso(),
-    blockedBy: sanitizeText(actor?.email, 140),
-    createdAt: nowIso(),
-    createdAtEpoch: Date.now(),
-    updatedAt: nowIso(),
-  };
-
-  const db = getDb();
-  if (!db) {
-    MEMORY_STORE.blockedIps.set(docIdFromValue(normalizedIp), entry);
-  } else {
-    await setDoc(doc(db, SECURITY_COLLECTIONS.blockedIps, docIdFromValue(normalizedIp)), entry, { merge: true });
-  }
+    actor,
+    durationMinutes,
+    blockSource: 'manual',
+  });
 
   await logAdminAudit({
     action: 'block_ip',
@@ -861,19 +1090,21 @@ const blockIpAddress = async ({ ipAddress, reason, actor }) => {
     ipAddress: actor?.ipAddress,
     targetType: 'ip_address',
     targetId: normalizedIp,
-    metadata: { reason: entry.reason },
+    metadata: { reason: entry.reason, expiresAt: entry.expiresAt, durationMinutes: entry.durationMinutes },
   });
 
   await logSecurityEvent({
     eventType: 'admin_action',
     severity: 'high',
     source: 'incident_response',
-    summary: `IP ${normalizedIp} was blocked from Security Center.`,
+    summary: 'IP ' + normalizedIp + ' was blocked from Security Center.',
     ipAddress: actor?.ipAddress || 'internal',
     userEmail: actor?.email || '',
     metadata: {
       blockedIp: normalizedIp,
       reason: entry.reason,
+      expiresAt: entry.expiresAt,
+      durationMinutes: entry.durationMinutes,
     },
   });
 
@@ -886,21 +1117,22 @@ const unblockIpAddress = async ({ ipAddress, actor }) => {
     throw new Error('Invalid IP address.');
   }
 
+  const current = await readBlockedIpEntry(normalizedIp);
+  const timestamp = Date.now();
+  const iso = new Date(timestamp).toISOString();
   const patch = {
+    ...(current || {}),
     ipAddress: normalizedIp,
     status: 'unblocked',
-    unblockedAt: nowIso(),
+    updatedAt: iso,
+    updatedAtEpoch: timestamp,
+    unblockedAt: iso,
     unblockedBy: sanitizeText(actor?.email, 140),
-    updatedAt: nowIso(),
+    unblockReason: 'manual',
+    autoExpired: false,
   };
 
-  const db = getDb();
-  if (!db) {
-    const current = MEMORY_STORE.blockedIps.get(docIdFromValue(normalizedIp)) || {};
-    MEMORY_STORE.blockedIps.set(docIdFromValue(normalizedIp), { ...current, ...patch });
-  } else {
-    await setDoc(doc(db, SECURITY_COLLECTIONS.blockedIps, docIdFromValue(normalizedIp)), patch, { merge: true });
-  }
+  const nextEntry = await persistBlockedIpEntry(normalizedIp, patch);
 
   await logAdminAudit({
     action: 'unblock_ip',
@@ -911,40 +1143,40 @@ const unblockIpAddress = async ({ ipAddress, actor }) => {
     targetId: normalizedIp,
   });
 
-  return patch;
+  return nextEntry;
 };
 
 const listBlockedIps = async () => {
+  await maybeRunRetentionCleanup().catch(() => {});
   const db = getDb();
 
+  let entries = [];
   if (!db) {
-    return Array.from(MEMORY_STORE.blockedIps.values())
-      .sort((a, b) => Number(b.createdAtEpoch || 0) - Number(a.createdAtEpoch || 0))
-      .slice(0, 400);
+    entries = Array.from(MEMORY_STORE.blockedIps.values());
+  } else {
+    const snapshot = await getDocs(query(collectionRef(db, 'blockedIps'), orderBy('createdAtEpoch', 'desc'), limit(400)));
+    entries = snapshot.docs.map((entry) => ({ id: entry.id, ...(entry.data() || {}) }));
   }
 
-  const snapshot = await getDocs(query(collectionRef(db, 'blockedIps'), orderBy('createdAtEpoch', 'desc'), limit(400)));
-  return snapshot.docs.map((entry) => ({ id: entry.id, ...(entry.data() || {}) }));
-};
-
-const isIpBlocked = async (ipAddress) => {
-  const normalizedIp = sanitizeIp(ipAddress);
-  if (!normalizedIp || normalizedIp === 'unknown') return false;
-
-  const db = getDb();
-  if (!db) {
-    const entry = MEMORY_STORE.blockedIps.get(docIdFromValue(normalizedIp));
-    return Boolean(entry && entry.status === 'blocked');
+  const normalizedEntries = [];
+  for (const entry of entries) {
+    if (entry?.status === 'blocked' && isBlockExpired(entry)) {
+      const expired = await expireBlockedIpEntry({ ipAddress: entry.ipAddress, currentEntry: entry, reason: 'automatic_expiry' });
+      normalizedEntries.push(expired || { ...entry, status: 'unblocked' });
+      continue;
+    }
+    normalizedEntries.push(entry);
   }
 
-  const snapshot = await getDoc(doc(db, SECURITY_COLLECTIONS.blockedIps, docIdFromValue(normalizedIp)));
-  if (!snapshot.exists()) return false;
-
-  const entry = snapshot.data() || {};
-  return entry.status === 'blocked';
+  return normalizedEntries
+    .sort((a, b) => Number(b.updatedAtEpoch || b.createdAtEpoch || 0) - Number(a.updatedAtEpoch || a.createdAtEpoch || 0))
+    .slice(0, 400);
 };
+
+const isIpBlocked = async (ipAddress) => Boolean(await getActiveBlockedIpEntry(ipAddress));
 
 const addIncidentAction = async ({ action, actor, payload = {} }) => {
+  await maybeRunRetentionCleanup().catch(() => {});
   const record = {
     action: sanitizeText(action, 120),
     actorEmail: sanitizeText(actor?.email, 140),
@@ -967,12 +1199,18 @@ const addIncidentAction = async ({ action, actor, payload = {} }) => {
   return { ...record, id: ref.id };
 };
 
-const getPublicSecurityStatus = async () => {
+const getPublicSecurityStatus = async (ipAddress = '') => {
   const settings = await getSecuritySettings();
+  await maybeRunRetentionCleanup(settings).catch(() => {});
+  const blockedEntry = ipAddress ? await getActiveBlockedIpEntry(ipAddress) : null;
+
   return {
-    loginEnabled: Boolean(settings.controls.loginEnabled),
-    resetPasswordEnabled: Boolean(settings.controls.resetPasswordEnabled),
-    heightenedProtection: Boolean(settings.controls.heightenedProtection),
+    loginEnabled: Boolean(settings.controls.loginEnabled) && !blockedEntry,
+    resetPasswordEnabled: Boolean(settings.controls.resetPasswordEnabled) && !blockedEntry,
+    heightenedProtection: Boolean(settings.controls.heightenedProtection) || Boolean(blockedEntry),
+    blocked: Boolean(blockedEntry),
+    blockedUntil: blockedEntry?.expiresAt || '',
+    blockedReason: blockedEntry?.reason || '',
   };
 };
 

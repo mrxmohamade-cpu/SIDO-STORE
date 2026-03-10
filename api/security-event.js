@@ -57,20 +57,20 @@ const getMetadata = (body) => {
 };
 
 export default async function handler(req, res) {
+  const clientIp = getClientIp(req);
+
   if (req.method === 'GET') {
     try {
-      const status = await getPublicSecurityStatus();
+      const status = await getPublicSecurityStatus(clientIp);
       return res.status(200).json({ ok: true, status });
     } catch {
-      return res.status(200).json({ ok: true, status: { loginEnabled: true, resetPasswordEnabled: true, heightenedProtection: false } });
+      return res.status(200).json({ ok: true, status: { loginEnabled: true, resetPasswordEnabled: true, heightenedProtection: false, blocked: false, blockedUntil: '', blockedReason: '' } });
     }
   }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: '\u0627\u0644\u0637\u0631\u064a\u0642\u0629 \u063a\u064a\u0631 \u0645\u0633\u0645\u0648\u062d \u0628\u0647\u0627' });
   }
-
-  const clientIp = getClientIp(req);
 
   if (isRateLimited('security-event', clientIp, RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_MS)) {
     return res.status(429).json({ error: '\u062a\u0645 \u062a\u062c\u0627\u0648\u0632 \u0627\u0644\u062d\u062f \u0627\u0644\u0645\u0633\u0645\u0648\u062d \u0628\u0647 \u0645\u0646 \u0627\u0644\u0637\u0644\u0628\u0627\u062a. \u062d\u0627\u0648\u0644 \u0644\u0627\u062d\u0642\u064b\u0627.' });

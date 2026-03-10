@@ -152,32 +152,29 @@ const trackClientSecurityEvent = async (eventType, payload = {}) => {
 };
 
 const fetchPublicSecurityStatus = async () => {
+  const fallback = {
+    loginEnabled: true,
+    resetPasswordEnabled: true,
+    heightenedProtection: false,
+    blocked: false,
+    blockedUntil: '',
+    blockedReason: '',
+  };
+
   try {
     const response = await fetch('/api/security-public', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
 
+    const payload = await parseResponseBody(response);
     if (!response.ok) {
-      return {
-        loginEnabled: true,
-        resetPasswordEnabled: true,
-        heightenedProtection: false,
-      };
+      return payload?.status || fallback;
     }
 
-    const payload = await response.json().catch(() => null);
-    return payload?.status || {
-      loginEnabled: true,
-      resetPasswordEnabled: true,
-      heightenedProtection: false,
-    };
+    return payload?.status || fallback;
   } catch {
-    return {
-      loginEnabled: true,
-      resetPasswordEnabled: true,
-      heightenedProtection: false,
-    };
+    return fallback;
   }
 };
 

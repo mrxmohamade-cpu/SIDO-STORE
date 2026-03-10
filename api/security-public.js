@@ -16,20 +16,12 @@ export default async function handler(req, res) {
   }
 
   if (await isIpBlocked(clientIp)) {
-    await logSecurityEvent({
-      eventType: 'route_probing',
-      severity: 'high',
-      source: 'security_public_api',
-      summary: 'Blocked IP attempted to access public security status endpoint.',
-      ipAddress: clientIp,
-      endpoint: req.url,
-    });
-
-    return res.status(403).json({ error: '\u062a\u0645 \u0631\u0641\u0636 \u0627\u0644\u0648\u0635\u0648\u0644.' });
+    const status = await getPublicSecurityStatus(clientIp);
+    return res.status(200).json({ ok: true, status });
   }
 
   try {
-    const status = await getPublicSecurityStatus();
+    const status = await getPublicSecurityStatus(clientIp);
     return res.status(200).json({ ok: true, status });
   } catch {
     return res.status(200).json({
@@ -38,6 +30,9 @@ export default async function handler(req, res) {
         loginEnabled: true,
         resetPasswordEnabled: true,
         heightenedProtection: false,
+        blocked: false,
+        blockedUntil: '',
+        blockedReason: '',
       },
     });
   }

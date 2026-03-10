@@ -267,13 +267,13 @@ export default async function handler(req, res) {
 
     if (commandInfo.command === 'failed_logins') {
       const events = await listSecurityEvents({ eventType: 'admin_login_failed' });
-      await sendReply({ chatId, text: formatEventsMessage('?? Derniers echecs de connexion admin', events) });
+      await sendReply({ chatId, text: formatEventsMessage('[AUTH] Derniers echecs de connexion admin', events) });
       return res.status(200).json({ ok: true });
     }
 
     if (commandInfo.command === 'reset_requests') {
       const events = await listSecurityEvents({ eventType: 'forgot_password_requested' });
-      await sendReply({ chatId, text: formatEventsMessage('?? Dernieres demandes de reinitialisation', events) });
+      await sendReply({ chatId, text: formatEventsMessage('[RESET] Dernieres demandes de reinitialisation', events) });
       return res.status(200).json({ ok: true });
     }
 
