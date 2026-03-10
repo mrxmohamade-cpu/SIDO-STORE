@@ -1,4 +1,5 @@
 import {
+  disconnectTelegramSettings,
   getClientIp,
   getTelegramSettingsForAdmin,
   isRateLimited,
@@ -123,6 +124,33 @@ export default async function handler(req, res) {
       );
 
       return res.status(200).json({ ok: true, settings, message: 'Test message sent successfully.' });
+    }
+
+    if (action === 'disconnect') {
+      const settings = await disconnectTelegramSettings();
+
+      await logAdminAudit({
+        action: 'telegram_settings_disconnected',
+        actorEmail: authResult.value?.email,
+        actorUid: authResult.value?.uid,
+        ipAddress: clientIp,
+        targetType: 'telegram_settings',
+        targetId: 'telegram_v1',
+      });
+
+      await logSecurityEvent(
+        buildEventFromRequest({
+          req,
+          eventType: 'telegram_settings_changed',
+          severity: 'high',
+          summary: 'Telegram integration was disconnected by admin.',
+          source: 'telegram_integration_api',
+          status: 'success',
+          user: authResult.value,
+        }),
+      );
+
+      return res.status(200).json({ ok: true, settings, message: 'Telegram integration disconnected.' });
     }
 
     return res.status(400).json({ error: 'Invalid action.' });

@@ -1,4 +1,4 @@
-import { sendTelegramEventNotification } from './_telegram.js';
+import { formatTelegramEventMessage, sendTelegramEventNotification } from './_telegram.js';
 import { buildEventFromRequest, isIpBlocked, logSecurityEvent } from './_security.js';
 
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -208,45 +208,11 @@ const validateOrderPayload = (payload) => {
   };
 };
 
-const formatOrderMessage = (order) => {
-  const itemsText = order.items
-    .map((item) => {
-      const variantText = [
-        item.selectedSize ? `Size: ${item.selectedSize}` : '',
-        item.selectedColor ? `Color: ${item.selectedColor}` : '',
-      ]
-        .filter(Boolean)
-        .join(' | ');
-
-      return [
-        `- ${escapeHtml(item.name)} x ${item.qty}`,
-        variantText ? `  ${escapeHtml(variantText)}` : '',
-        `  ${item.price} DZD`,
-      ]
-        .filter(Boolean)
-        .join('\n');
-    })
-    .join('\n');
-
-  return [
-    '<b>New Order</b>',
-    '',
-    `<b>Name:</b> ${escapeHtml(order.customer.name)}`,
-    `<b>Phone:</b> ${escapeHtml(order.customer.phone)}`,
-    `<b>Wilaya:</b> ${escapeHtml(order.customer.wilaya)}`,
-    `<b>Commune:</b> ${escapeHtml(order.customer.commune)}`,
-    '',
-    '<b>Items:</b>',
-    itemsText || '-',
-    '',
-    `<b>Subtotal:</b> ${order.subtotal} DZD`,
-    `<b>Discount:</b> ${order.discount} DZD`,
-    order.couponCode ? `<b>Coupon:</b> ${escapeHtml(order.couponCode)}` : '',
-    `<b>Total:</b> ${order.totalPrice} DZD`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-};
+const formatOrderMessage = (order) =>
+  formatTelegramEventMessage({
+    eventType: 'new_order',
+    payload: order,
+  });
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {

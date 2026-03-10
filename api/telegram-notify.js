@@ -1,4 +1,5 @@
 import {
+  formatTelegramEventMessage,
   getClientIp,
   isRateLimited,
   parseRequestBody,
@@ -10,48 +11,6 @@ import { buildEventFromRequest, isIpBlocked, logAdminAudit, logSecurityEvent } f
 
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 80;
-
-const buildMessage = (eventType, payload) => {
-  const safePayload = payload && typeof payload === 'object' ? payload : {};
-
-  if (eventType === 'order_status_changed') {
-    return [
-      '<b>Order Status Updated</b>',
-      '',
-      `<b>Order:</b> #${sanitizeText(safePayload.orderId, 40) || '-'}`,
-      `<b>From:</b> ${sanitizeText(safePayload.previousStatus, 80) || '-'}`,
-      `<b>To:</b> ${sanitizeText(safePayload.nextStatus, 80) || '-'}`,
-      safePayload.customerName ? `<b>Customer:</b> ${sanitizeText(safePayload.customerName, 120)}` : '',
-      `<b>By:</b> ${sanitizeText(safePayload.adminEmail, 120) || 'admin'}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  if (eventType === 'system_error') {
-    return [
-      '<b>System Alert</b>',
-      '',
-      `<b>Module:</b> ${sanitizeText(safePayload.module, 80) || 'admin'}`,
-      `<b>Message:</b> ${sanitizeText(safePayload.message, 240) || 'Unknown error'}`,
-      `<b>By:</b> ${sanitizeText(safePayload.adminEmail, 120) || 'admin'}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
-  return [
-    '<b>Admin Action</b>',
-    '',
-    `<b>Action:</b> ${sanitizeText(safePayload.action, 100) || 'update'}`,
-    safePayload.entity ? `<b>Entity:</b> ${sanitizeText(safePayload.entity, 100)}` : '',
-    safePayload.entityId ? `<b>ID:</b> ${sanitizeText(safePayload.entityId, 60)}` : '',
-    safePayload.label ? `<b>Label:</b> ${sanitizeText(safePayload.label, 140)}` : '',
-    `<b>By:</b> ${sanitizeText(safePayload.adminEmail, 120) || 'admin'}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -118,11 +77,12 @@ export default async function handler(req, res) {
     adminEmail: authResult.value?.email || '',
   };
 
-  const message = buildMessage(eventType, payload);
+  const message = formatTelegramEventMessage({ eventType, payload });
 
   const notifyResult = await sendTelegramEventNotification({
     eventType,
     message,
+    payload,
   });
 
   await logAdminAudit({

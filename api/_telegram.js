@@ -39,6 +39,12 @@ const sanitizeText = (value, maxLength = 180) =>
     .trim()
     .slice(0, maxLength);
 
+const escapeHtml = (value = '') =>
+  String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+
 const parseRequestBody = (body) => {
   if (!body) return null;
   if (typeof body === 'object') return body;
@@ -152,6 +158,14 @@ const verifyAdminRequest = async (req) => {
   }
 };
 
+const createTelegramError = (code, message) => {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+};
+
+const getTelegramErrorCode = (error) => sanitizeText(error?.code, 60).toLowerCase();
+
 const getEncryptionSecret = () => {
   const configured = String(process.env.TELEGRAM_ENCRYPTION_SECRET || '').trim();
   if (configured) return configured;
@@ -173,7 +187,7 @@ const getEncryptionKey = () => {
 const encryptToken = (plainToken) => {
   const key = getEncryptionKey();
   if (!key) {
-    throw new Error('TELEGRAM_ENCRYPTION_SECRET is required for secure storage.');
+    throw createTelegramError('server_config_required', '\u0644\u0627 \u064a\u0645\u0643\u0646 \u062d\u0641\u0638 \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0627\u0644\u0622\u0646 \u0644\u0623\u0646 \u0625\u0639\u062f\u0627\u062f \u0627\u0644\u062e\u0627\u062f\u0645 \u063a\u064a\u0631 \u0645\u0643\u062a\u0645\u0644.');
   }
 
   const iv = randomBytes(12);
@@ -193,17 +207,21 @@ const decryptToken = (encrypted) => {
 
   const key = getEncryptionKey();
   if (!key) {
-    throw new Error('TELEGRAM_ENCRYPTION_SECRET is required to decrypt token.');
+    throw createTelegramError('server_config_required', '\u062a\u0639\u0630\u0631 \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0627\u0644\u062d\u0627\u0644\u064a. \u0623\u0643\u0645\u0644 \u0625\u0639\u062f\u0627\u062f \u0627\u0644\u062e\u0627\u062f\u0645 \u0623\u0648 \u0623\u0639\u062f \u0627\u0644\u0631\u0628\u0637 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0627\u0644\u0623\u062f\u0645\u0646.');
   }
 
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(encrypted.iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(encrypted.ciphertext, 'base64')),
-    decipher.final(),
-  ]);
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(encrypted.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(encrypted.ciphertext, 'base64')),
+      decipher.final(),
+    ]);
 
-  return plaintext.toString('utf8');
+    return plaintext.toString('utf8');
+  } catch {
+    throw createTelegramError('needs_reconnect', '\u062a\u0639\u0630\u0631 \u0642\u0631\u0627\u0621\u0629 \u0628\u064a\u0627\u0646\u0627\u062a \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0627\u0644\u062d\u0627\u0644\u064a\u0629. \u0623\u0639\u062f \u0627\u0644\u0631\u0628\u0637 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0627\u0644\u0623\u062f\u0645\u0646.');
+  }
 };
 
 const normalizeNotifications = (notifications) => {
@@ -255,7 +273,7 @@ const readTelegramSettingsDocument = async () => {
 const writeTelegramSettingsDocument = async (docData) => {
   const db = getDb();
   if (!db) {
-    throw new Error('Firebase is not configured.');
+    throw createTelegramError('firebase_not_configured', 'Firebase is not configured for Telegram settings.');
   }
 
   await setDoc(
@@ -268,76 +286,256 @@ const writeTelegramSettingsDocument = async (docData) => {
   );
 };
 
-const buildPublicTelegramSettings = (docData, token) => {
+const getConnectionStatus = ({ docData, token, chatId, errorCode }) => {
+  const hasStoredToken = Boolean(token || docData?.token?.ciphertext || docData?.legacyToken);
+  if (!hasStoredToken || !chatId) return 'disconnected';
+  if (errorCode === 'server_config_required') return 'server_config_required';
+  if (errorCode === 'needs_reconnect') return 'needs_reconnect';
+  return docData?.lastTestOk ? 'connected' : 'not_verified';
+};
+
+const buildPublicTelegramSettings = (docData, token, options = {}) => {
   const notifications = normalizeNotifications(docData?.notifications);
   const enabled = Boolean(docData?.enabled);
-  const hasToken = Boolean(token);
   const chatId = sanitizeText(docData?.chatId, 40);
+  const hasStoredToken = Boolean(token || docData?.token?.ciphertext || docData?.legacyToken);
+  const errorCode = sanitizeText(options.errorCode, 80).toLowerCase();
+  const publicError = sanitizeText(options.errorMessage, 240) || sanitizeText(docData?.lastError, 240);
 
   return {
     enabled,
-    hasToken,
-    botTokenMasked: hasToken ? maskTelegramToken(token) : '',
+    hasToken: hasStoredToken,
+    botTokenMasked: token ? maskTelegramToken(token) : hasStoredToken ? '????????' : '',
     chatId,
     chatIdMasked: chatId ? maskChatId(chatId) : '',
     notifications,
-    connectionStatus: docData?.lastTestOk ? 'connected' : hasToken && chatId ? 'not_verified' : 'disconnected',
+    connectionStatus: getConnectionStatus({ docData, token, chatId, errorCode }),
+    requiresReconnect: errorCode === 'needs_reconnect',
+    requiresServerConfig: errorCode === 'server_config_required',
     lastTestAt: docData?.lastTestAt || '',
-    lastError: sanitizeText(docData?.lastError, 240),
+    lastError: publicError,
   };
 };
 
 const resolveStoredTelegramSettings = async () => {
   const docData = await readTelegramSettingsDocument();
-  if (!docData) return { docData: null, token: '', chatId: '' };
-
-  let token = '';
-  if (docData.token?.ciphertext) {
-    token = decryptToken(docData.token);
-  } else if (docData.legacyToken) {
-    token = String(docData.legacyToken || '').trim();
+  if (!docData) {
+    return { docData: null, token: '', chatId: '', errorCode: '', errorMessage: '' };
   }
 
   const chatId = sanitizeText(docData.chatId, 40);
-  return { docData, token, chatId };
+
+  try {
+    let token = '';
+    if (docData.token?.ciphertext) {
+      token = decryptToken(docData.token);
+    } else if (docData.legacyToken) {
+      token = String(docData.legacyToken || '').trim();
+    }
+
+    return { docData, token, chatId, errorCode: '', errorMessage: '' };
+  } catch (error) {
+    return {
+      docData,
+      token: '',
+      chatId,
+      errorCode: getTelegramErrorCode(error),
+      errorMessage: sanitizeText(error?.message, 240),
+    };
+  }
 };
 
 const getTelegramSettingsForAdmin = async () => {
-  const { docData, token } = await resolveStoredTelegramSettings();
-  if (!docData) {
+  const resolved = await resolveStoredTelegramSettings();
+  if (!resolved.docData) {
     return buildPublicTelegramSettings(null, '');
   }
-  return buildPublicTelegramSettings(docData, token);
+
+  return buildPublicTelegramSettings(resolved.docData, resolved.token, {
+    errorCode: resolved.errorCode,
+    errorMessage: resolved.errorMessage,
+  });
 };
 
 const saveTelegramSettings = async (payload) => {
   const input = payload && typeof payload === 'object' ? payload : {};
-  const { docData: existingDoc, token: existingToken } = await resolveStoredTelegramSettings();
+  const { docData: existingDoc, token: existingToken, errorCode } = await resolveStoredTelegramSettings();
 
   const botTokenInput = sanitizeText(input.botToken, 240);
   const chatIdInput = sanitizeText(input.chatId, 40);
-  const tokenToUse = botTokenInput || existingToken;
+  const tokenToUse = botTokenInput || (errorCode ? '' : existingToken);
   const chatIdToUse = chatIdInput || sanitizeText(existingDoc?.chatId, 40);
 
   if (!tokenToUse || !isValidBotToken(tokenToUse)) {
-    throw new Error('Bot token is invalid.');
+    throw createTelegramError('invalid_bot_token', '\u0631\u0645\u0632 Bot Token \u063a\u064a\u0631 \u0635\u0627\u0644\u062d.');
   }
 
   if (!chatIdToUse || !isValidChatId(chatIdToUse)) {
-    throw new Error('Chat ID is invalid.');
+    throw createTelegramError('invalid_chat_id', '\u0642\u064a\u0645\u0629 Chat ID \u063a\u064a\u0631 \u0635\u0627\u0644\u062d\u0629.');
   }
 
-  const encryptedToken = encryptToken(tokenToUse);
   const nextDoc = {
     enabled: Boolean(input.enabled),
     chatId: chatIdToUse,
-    token: encryptedToken,
+    token: encryptToken(tokenToUse),
     notifications: normalizeNotifications(input.notifications || existingDoc?.notifications),
     lastError: '',
+    lastTestAt: existingDoc?.lastTestAt || '',
+    lastTestOk: false,
   };
 
   await writeTelegramSettingsDocument(nextDoc);
   return buildPublicTelegramSettings(nextDoc, tokenToUse);
+};
+
+const disconnectTelegramSettings = async () => {
+  const { docData } = await resolveStoredTelegramSettings();
+  const nextDoc = {
+    enabled: false,
+    chatId: '',
+    token: null,
+    legacyToken: '',
+    notifications: normalizeNotifications(docData?.notifications),
+    lastTestAt: '',
+    lastTestOk: false,
+    lastError: '',
+  };
+
+  await writeTelegramSettingsDocument(nextDoc);
+  return buildPublicTelegramSettings(nextDoc, '');
+};
+
+const formatMoney = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '-';
+  return `${new Intl.NumberFormat('fr-DZ').format(amount)} \u062f.\u062c`;
+};
+
+const formatDateTime = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return sanitizeText(value, 80) || '-';
+  return date.toLocaleString('ar-DZ');
+};
+
+const toStatusLabel = (status) => {
+  const normalized = sanitizeText(status, 40).toLowerCase();
+  switch (normalized) {
+    case 'pending':
+      return '\u0642\u064a\u062f \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629';
+    case 'confirmed':
+      return '\u062a\u0645 \u0627\u0644\u062a\u0623\u0643\u064a\u062f';
+    case 'processing':
+      return '\u0642\u064a\u062f \u0627\u0644\u062a\u062d\u0636\u064a\u0631';
+    case 'shipped':
+      return '\u062a\u0645 \u0627\u0644\u0634\u062d\u0646';
+    case 'out_for_delivery':
+      return '\u062e\u0631\u062c \u0644\u0644\u062a\u0648\u0635\u064a\u0644';
+    case 'delivered':
+      return '\u062a\u0645 \u0627\u0644\u062a\u0633\u0644\u064a\u0645';
+    case 'cancelled':
+      return '\u0645\u0644\u063a\u064a';
+    default:
+      return sanitizeText(status, 60) || '\u063a\u064a\u0631 \u0645\u062d\u062f\u062f\u0629';
+  }
+};
+
+const formatItemsList = (items = []) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '\u2022 \u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u0646\u062a\u062c\u0627\u062a \u0645\u0631\u0641\u0642\u0629';
+  }
+
+  return items
+    .slice(0, 8)
+    .map((item) => {
+      const qty = Number(item?.qty) || 0;
+      const name = escapeHtml(sanitizeText(item?.name, 90) || '\u0645\u0646\u062a\u062c');
+      const size = sanitizeText(item?.selectedSize, 30);
+      const color = sanitizeText(item?.selectedColor, 30);
+      const extras = [size ? `\u0627\u0644\u0645\u0642\u0627\u0633: ${escapeHtml(size)}` : '', color ? `\u0627\u0644\u0644\u0648\u0646: ${escapeHtml(color)}` : '']
+        .filter(Boolean)
+        .join(' | ');
+      const linePrice = Number.isFinite(Number(item?.lineTotal)) ? formatMoney(item.lineTotal) : formatMoney((Number(item?.price) || 0) * qty);
+      return [`\u2022 ${name} ? ${qty || 1}`, extras ? `  ${extras}` : '', `  ${linePrice}`].filter(Boolean).join('\n');
+    })
+    .join('\n');
+};
+
+const formatTelegramEventMessage = ({ eventType, payload = {}, message = '' }) => {
+  const safePayload = payload && typeof payload === 'object' ? payload : {};
+  const fallback = sanitizeText(message, 2600);
+
+  if (eventType === 'new_order') {
+    return [
+      '<b>\u{1F6D2} \u0637\u0644\u0628 \u062c\u062f\u064a\u062f \u0641\u064a \u0627\u0644\u0645\u062a\u062c\u0631</b>',
+      '',
+      `<b>\u{1F464} \u0627\u0644\u0632\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.customer?.name || safePayload.customerName, 120) || '-')}`,
+      `<b>\u{1F4DE} \u0627\u0644\u0647\u0627\u062a\u0641:</b> ${escapeHtml(sanitizeText(safePayload.customer?.phone || safePayload.phone, 60) || '-')}`,
+      `<b>\u{1F4CD} \u0627\u0644\u0648\u0644\u0627\u064a\u0629:</b> ${escapeHtml(sanitizeText(safePayload.customer?.wilaya || safePayload.wilaya, 80) || '-')}`,
+      `<b>\u{1F3D8} \u0627\u0644\u0628\u0644\u062f\u064a\u0629:</b> ${escapeHtml(sanitizeText(safePayload.customer?.commune || safePayload.commune, 80) || '-')}`,
+      `<b>\u{1F4B3} \u0627\u0644\u0645\u062c\u0645\u0648\u0639:</b> ${formatMoney(safePayload.totalPrice)}`,
+      Number(safePayload.discount) > 0 ? `<b>\u{1F3F7} \u0627\u0644\u062e\u0635\u0645:</b> ${formatMoney(safePayload.discount)}` : '',
+      safePayload.couponCode ? `<b>\u{1F39F} \u0627\u0644\u0643\u0648\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.couponCode, 40))}` : '',
+      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+      '',
+      '<b>\u{1F4E6} \u0627\u0644\u0645\u0646\u062a\u062c\u0627\u062a</b>',
+      formatItemsList(safePayload.items),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (eventType === 'order_status_changed') {
+    return [
+      '<b>\u{1F69A} \u062a\u062d\u062f\u064a\u062b \u062d\u0627\u0644\u0629 \u0637\u0644\u0628</b>',
+      '',
+      `<b>\u{1F9FE} \u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628:</b> #${escapeHtml(sanitizeText(safePayload.orderId, 40) || '-')}`,
+      `<b>\u{1F501} \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629:</b> ${escapeHtml(toStatusLabel(safePayload.previousStatus))}`,
+      `<b>\u2705 \u0627\u0644\u062d\u0627\u0644\u0629 \u0627\u0644\u062c\u062f\u064a\u062f\u0629:</b> ${escapeHtml(toStatusLabel(safePayload.nextStatus))}`,
+      safePayload.customerName ? `<b>\u{1F464} \u0627\u0644\u0632\u0628\u0648\u0646:</b> ${escapeHtml(sanitizeText(safePayload.customerName, 120))}` : '',
+      `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (eventType === 'system_error') {
+    return [
+      '<b>\u{1F6A8} \u062a\u0646\u0628\u064a\u0647 \u0646\u0638\u0627\u0645</b>',
+      '',
+      `<b>\u{1F9E9} \u0627\u0644\u0648\u062d\u062f\u0629:</b> ${escapeHtml(sanitizeText(safePayload.module, 80) || 'system')}`,
+      `<b>\u26A0\uFE0F \u0627\u0644\u0645\u0633\u062a\u0648\u0649:</b> ${escapeHtml(sanitizeText(safePayload.severity, 40) || '\u0645\u0631\u062a\u0641\u0639')}`,
+      `<b>\u{1F4DD} \u0627\u0644\u0645\u0644\u062e\u0635:</b> ${escapeHtml(sanitizeText(safePayload.message || fallback, 240) || '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u062e\u0637\u0623 \u064a\u062d\u062a\u0627\u062c \u0645\u0631\u0627\u062c\u0639\u0629.')}`,
+      safePayload.suggestedAction ? `<b>\u{1F6E0} \u0627\u0644\u0625\u062c\u0631\u0627\u0621 \u0627\u0644\u0645\u0642\u062a\u0631\u062d:</b> ${escapeHtml(sanitizeText(safePayload.suggestedAction, 160))}` : '',
+      `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'system')}`,
+      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (eventType === 'telegram_test') {
+    return [
+      '<b>\u2705 \u0627\u062e\u062a\u0628\u0627\u0631 \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645</b>',
+      '',
+      '\u062a\u0645 \u0625\u0631\u0633\u0627\u0644 \u0647\u0630\u0647 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0644\u0644\u062a\u0623\u0643\u062f \u0645\u0646 \u0623\u0646 \u0627\u0644\u0631\u0628\u0637 \u064a\u0639\u0645\u0644 \u0628\u0634\u0643\u0644 \u0635\u062d\u064a\u062d.',
+      `<b>\u{1F4AC} Chat ID:</b> ${escapeHtml(sanitizeText(safePayload.chatId, 40) || '-')}`,
+      `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+    ].join('\n');
+  }
+
+  return [
+    '<b>\u{1F6E0} \u0625\u0634\u0639\u0627\u0631 \u0625\u062f\u0627\u0631\u064a</b>',
+    '',
+    `<b>\u{1F4CC} \u0627\u0644\u0625\u062c\u0631\u0627\u0621:</b> ${escapeHtml(sanitizeText(safePayload.action, 100) || sanitizeText(eventType, 80) || 'admin_action')}`,
+    safePayload.entity ? `<b>\u{1F4C1} \u0627\u0644\u0642\u0633\u0645:</b> ${escapeHtml(sanitizeText(safePayload.entity, 100))}` : '',
+    safePayload.entityId ? `<b>\u{1F194} \u0627\u0644\u0645\u0639\u0631\u0641:</b> ${escapeHtml(sanitizeText(safePayload.entityId, 80))}` : '',
+    safePayload.label ? `<b>\u{1F4DD} \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644:</b> ${escapeHtml(sanitizeText(safePayload.label, 180))}` : '',
+    `<b>\u{1F468}\u200D\u{1F4BC} \u0628\u0648\u0627\u0633\u0637\u0629:</b> ${escapeHtml(sanitizeText(safePayload.adminEmail, 120) || 'admin')}`,
+    `<b>\u{1F552} \u0627\u0644\u0648\u0642\u062a:</b> ${formatDateTime()}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 };
 
 const sendTelegramMessage = async ({ botToken, chatId, text }) => {
@@ -373,23 +571,22 @@ const saveTelegramTestStatus = async ({ ok, error }) => {
 };
 
 const testTelegramSettings = async (payload = {}) => {
-  const { docData: existingDoc, token: storedToken, chatId: storedChatId } = await resolveStoredTelegramSettings();
-  const botToken = sanitizeText(payload.botToken, 240) || storedToken;
+  const { docData: existingDoc, token: storedToken, chatId: storedChatId, errorCode } = await resolveStoredTelegramSettings();
+  const providedToken = sanitizeText(payload.botToken, 240);
+  const botToken = providedToken || (errorCode ? '' : storedToken);
   const chatId = sanitizeText(payload.chatId, 40) || storedChatId;
 
   if (!botToken || !isValidBotToken(botToken)) {
-    throw new Error('Bot token is invalid for test.');
+    throw createTelegramError('invalid_bot_token', '\u0631\u0645\u0632 Bot Token \u063a\u064a\u0631 \u0635\u0627\u0644\u062d \u0644\u0627\u062e\u062a\u0628\u0627\u0631 \u0627\u0644\u0631\u0628\u0637.');
   }
   if (!chatId || !isValidChatId(chatId)) {
-    throw new Error('Chat ID is invalid for test.');
+    throw createTelegramError('invalid_chat_id', '\u0642\u064a\u0645\u0629 Chat ID \u063a\u064a\u0631 \u0635\u0627\u0644\u062d\u0629 \u0644\u0627\u062e\u062a\u0628\u0627\u0631 \u0627\u0644\u0631\u0628\u0637.');
   }
 
-  const testMessage = [
-    '<b>Telegram Integration Test</b>',
-    '',
-    'This message confirms that the current integration settings are valid.',
-    `<b>Time:</b> ${new Date().toLocaleString('ar-DZ')}`,
-  ].join('\n');
+  const testMessage = formatTelegramEventMessage({
+    eventType: 'telegram_test',
+    payload: { chatId },
+  });
 
   const sendResult = await sendTelegramMessage({
     botToken,
@@ -398,8 +595,8 @@ const testTelegramSettings = async (payload = {}) => {
   });
 
   if (!sendResult.ok) {
-    await saveTelegramTestStatus({ ok: false, error: sendResult.error });
-    throw new Error('Failed to send test message. Check Bot token and Chat ID.');
+    await saveTelegramTestStatus({ ok: false, error: '\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0627\u062e\u062a\u0628\u0627\u0631. \u062a\u062d\u0642\u0642 \u0645\u0646 Bot Token \u0648Chat ID.' });
+    throw createTelegramError('test_failed', '\u0641\u0634\u0644 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0627\u062e\u062a\u0628\u0627\u0631. \u062a\u062d\u0642\u0642 \u0645\u0646 Bot Token \u0648Chat ID \u062b\u0645 \u0623\u0639\u062f \u0627\u0644\u0645\u062d\u0627\u0648\u0644\u0629.');
   }
 
   const patch = {
@@ -411,7 +608,8 @@ const testTelegramSettings = async (payload = {}) => {
     lastTestOk: true,
     lastError: '',
   };
-  if (!existingDoc?.token?.ciphertext || sanitizeText(payload.botToken, 240)) {
+
+  if (providedToken || !existingDoc?.token?.ciphertext) {
     patch.token = encryptToken(botToken);
   }
 
@@ -432,54 +630,17 @@ const mapEventToFlag = (eventType) => {
   }
 };
 
-const sendTelegramEventNotification = async ({ eventType, message }) => {
-  try {
-    const { docData, token, chatId } = await resolveStoredTelegramSettings();
+const resolveTelegramRuntimeConfig = async () => {
+  const { docData, token, chatId, errorCode, errorMessage } = await resolveStoredTelegramSettings();
 
-    if (!docData || !docData.enabled || !token || !chatId) {
-      const legacyToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
-      const legacyChatId = String(process.env.TELEGRAM_CHAT_ID || '').trim();
-      if (!legacyToken || !legacyChatId) {
-        return { ok: true, delivered: false, reason: 'integration-disabled' };
-      }
-
-      const legacySend = await sendTelegramMessage({
-        botToken: legacyToken,
-        chatId: legacyChatId,
-        text: message,
-      });
-      return legacySend.ok
-        ? { ok: true, delivered: true }
-        : { ok: false, delivered: false, error: legacySend.error };
-    }
-
-    const notifications = normalizeNotifications(docData.notifications);
-    const eventFlag = mapEventToFlag(eventType);
-    if (!notifications[eventFlag]) {
-      return { ok: true, delivered: false, reason: 'notification-disabled' };
-    }
-
-    const sendResult = await sendTelegramMessage({
-      botToken: token,
-      chatId,
-      text: message,
-    });
-
-    if (!sendResult.ok) {
-      return { ok: false, delivered: false, error: sendResult.error };
-    }
-    return { ok: true, delivered: true };
-  } catch (error) {
+  if (errorCode === 'server_config_required' || errorCode === 'needs_reconnect') {
     return {
       ok: false,
-      delivered: false,
-      error: sanitizeText(error?.message || 'Telegram notification failed.', 220),
+      error: errorMessage || '\u062a\u0639\u0630\u0631 \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0627\u0644\u062d\u0627\u0644\u064a. \u0623\u0639\u062f \u0627\u0644\u0631\u0628\u0637 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0627\u0644\u0623\u062f\u0645\u0646.',
+      code: errorCode,
     };
   }
-};
 
-const resolveTelegramRuntimeConfig = async () => {
-  const { docData, token, chatId } = await resolveStoredTelegramSettings();
   if (token && chatId) {
     return {
       ok: true,
@@ -490,26 +651,59 @@ const resolveTelegramRuntimeConfig = async () => {
     };
   }
 
-  const legacyToken = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  const legacyChatId = String(process.env.TELEGRAM_CHAT_ID || '').trim();
-  if (!legacyToken || !legacyChatId) {
-    return { ok: false, error: 'Telegram integration is not configured.' };
-  }
-
   return {
-    ok: true,
-    token: legacyToken,
-    chatId: legacyChatId,
-    enabled: true,
-    source: 'legacy',
+    ok: false,
+    error: '\u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u063a\u064a\u0631 \u0645\u0641\u0639\u0651\u0644 \u062d\u0627\u0644\u064a\u064b\u0627. \u0627\u062d\u0641\u0638 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0631\u0628\u0637 \u0645\u0646 \u0644\u0648\u062d\u0629 \u0627\u0644\u0623\u062f\u0645\u0646 \u0623\u0648\u0644\u064b\u0627.',
+    code: 'disconnected',
   };
+};
+
+const sendTelegramEventNotification = async ({ eventType, message = '', payload = {} }) => {
+  try {
+    const { docData, token, chatId, errorCode, errorMessage } = await resolveStoredTelegramSettings();
+
+    if (errorCode === 'server_config_required' || errorCode === 'needs_reconnect') {
+      return { ok: false, delivered: false, error: errorMessage };
+    }
+
+    if (!docData || !docData.enabled || !token || !chatId) {
+      return { ok: true, delivered: false, reason: 'integration-disabled' };
+    }
+
+    const notifications = normalizeNotifications(docData.notifications);
+    const eventFlag = mapEventToFlag(eventType);
+    if (!notifications[eventFlag]) {
+      return { ok: true, delivered: false, reason: 'notification-disabled' };
+    }
+
+    const finalMessage = sanitizeText(message, 2600)
+      ? message
+      : formatTelegramEventMessage({ eventType, payload });
+
+    const sendResult = await sendTelegramMessage({
+      botToken: token,
+      chatId,
+      text: finalMessage,
+    });
+
+    if (!sendResult.ok) {
+      return { ok: false, delivered: false, error: sendResult.error };
+    }
+    return { ok: true, delivered: true };
+  } catch (error) {
+    return {
+      ok: false,
+      delivered: false,
+      error: sanitizeText(error?.message || '\u062a\u0639\u0630\u0631 \u0625\u0631\u0633\u0627\u0644 \u0625\u0634\u0639\u0627\u0631 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645.', 220),
+    };
+  }
 };
 
 const sendTelegramDirectMessage = async ({ text, chatId = '', bypassEnabled = false }) => {
   try {
     const runtime = await resolveTelegramRuntimeConfig();
     if (!runtime.ok) {
-      return { ok: false, delivered: false, error: runtime.error || 'Telegram runtime unavailable.' };
+      return { ok: false, delivered: false, error: runtime.error || '\u0631\u0628\u0637 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u064b\u0627.' };
     }
 
     if (!bypassEnabled && !runtime.enabled) {
@@ -518,7 +712,7 @@ const sendTelegramDirectMessage = async ({ text, chatId = '', bypassEnabled = fa
 
     const targetChatId = sanitizeText(chatId, 40) || runtime.chatId;
     if (!targetChatId) {
-      return { ok: false, delivered: false, error: 'Chat ID is missing.' };
+      return { ok: false, delivered: false, error: '\u0642\u064a\u0645\u0629 Chat ID \u063a\u064a\u0631 \u0645\u062a\u0648\u0641\u0631\u0629.' };
     }
 
     const sendResult = await sendTelegramMessage({
@@ -536,24 +730,24 @@ const sendTelegramDirectMessage = async ({ text, chatId = '', bypassEnabled = fa
     return {
       ok: false,
       delivered: false,
-      error: sanitizeText(error?.message || 'Failed to send Telegram direct message.', 220),
+      error: sanitizeText(error?.message || '\u062a\u0639\u0630\u0631 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0644\u0629 \u062a\u064a\u0644\u064a\u062c\u0631\u0627\u0645 \u0645\u0628\u0627\u0634\u0631\u0629.', 220),
     };
   }
 };
+
 export {
   DEFAULT_NOTIFICATIONS,
+  disconnectTelegramSettings,
+  formatTelegramEventMessage,
   getClientIp,
   getTelegramSettingsForAdmin,
   isRateLimited,
   parseRequestBody,
+  resolveTelegramRuntimeConfig,
   sanitizeText,
   saveTelegramSettings,
   sendTelegramDirectMessage,
   sendTelegramEventNotification,
   testTelegramSettings,
-  resolveTelegramRuntimeConfig,
   verifyAdminRequest,
 };
-
-
-
